@@ -195,7 +195,7 @@ if $bash_mode; then
   if [ -t 1 ]; then # Terminal mode
     echo "$cmd"
   else # Non-terminal mode, redirect output to stderr
-    { echo "$cmd"; echo "$cmd" >&2; }
+    { echo "$cmd" >&2; echo "$cmd"; }
   fi
 
   echo "$cmd" >> ~/.bash_history # Write to parent's history note .bashrc need to history -r before every prompt
@@ -213,8 +213,9 @@ else # Normal mode - just output the result, glow if is termial, copy to stderr 
   if [ -t 1 ]; then
     command -v glow >/dev/null 2>&1 && echo "$output" | glow || echo "$output"
   else
-    echo "$output"
     echo -e "$(truncate_string "$output")" >&2
+    echo "$output"
+
   fi
 
   [[ $truncated -eq 1 ]] && echo -e "${grey}(Truncated input - answer could be wrong or incomplete)${reset}" >&2
