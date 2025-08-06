@@ -1,7 +1,9 @@
 #!/bin/bash
 
 # === Configuration ===
-base_url="https://api.openai.com/v1"
+base_url="https://open-bj.nopshop.com/openai/v1"
+# base_url="https://api.openai.com/v1"
+
 model="gpt-4o"
 timeout_sec=60
 max_input_length=64000
@@ -66,6 +68,51 @@ Examples:
 EOF
   exit ${1:-0}
 }
+# Function to add a user message and assistant response to history
+add_history() {
+    local user_msg="$1"
+    local assistant_msg="$2"
+    local hist_file="/tmp/$USER/pls_history.log"
+    local timestamp=$(date +'%Y-%m-%d %H:%M:%S')
+    
+    mkdir -p "/tmp/$USER"
+    touch "$hist_file"
+
+    # Escape and format the message as JSON (pretty printed multiline)
+    jq -n --arg role "user" --arg content "$user_msg" \
+        --arg time "$timestamp" \
+        '{timestamp: $time, role: $role, content: $content}' >> "$hist_file"
+    jq -n --arg role "assistant" --arg content "$assistant_msg" \
+        --arg time "$timestamp" \
+        '{timestamp: $time, role: $role, content: $content}' >> "$hist_file"
+}
+
+
+# Function to read the latest 10 lines from history, excluding timestamps
+read_history() {
+    local time_window_min=30    # look back this many minutes
+    local max_records=30        # max records to return if over this number
+    local hist_file="/tmp/$USER/pls_history.log"
+
+    if [ ! -f "$hist_file" ]; then
+        echo "[]"
+        return
+    fi
+
+    # Get current timestamp in seconds since epoch
+    local now_epoch=$(date +%s)
+    # Compute cutoff timestamp (time_window_min ago) in the same format your logs use (YYYY-MM-DD HH:MM:SS)
+    local cutoff=$(date -d "@$((now_epoch - time_window_min*60))" '+%Y-%m-%d %H:%M:%S')
+
+    # Filter by timestamp >= cutoff, then trim if too many
+    jq -s --arg cutoff "$cutoff" --argjson max "$max_records" '
+      map(select(.timestamp >= $cutoff))
+      | if length > $max then .[-$max:] else . end
+      | map({role, content})
+    ' "$hist_file"
+}
+
+
 
 # Print first 100 chars
 truncate_string() {
@@ -141,17 +188,19 @@ spinner_note="input $total_chars"
 
 user_prompt="$user_prompt. Follow all general rules."
 
-# Prepare and send API request
+history_messages=$(read_history)
+
 json_payload=$(jq -n \
   --arg model "$model" \
   --arg sys "$system_instruction" \
+  --argjson hist "$history_messages" \
   --arg prompt "$user_prompt" \
   '{
     model: $model,
-    messages: [
-      {role: "system", content: $sys},
-      {role: "user", content: $prompt}
-    ]
+    messages: (
+    [{role: "system", content: $sys}] + 
+    $hist + 
+    [{role: "user", content: $prompt}])  
   }')
 
 start_spinner
@@ -181,6 +230,9 @@ fi
 
 # Output result
 output=$(jq -r '.choices[0].message.content // ""' <<< "$http_body" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+
+# Add to history after response is generated
+add_history "$user_prompt" "$output"
 
 if $bash_mode; then
   # In bash mode, display the command and wait for confirmation
