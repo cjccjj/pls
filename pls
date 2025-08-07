@@ -21,6 +21,7 @@ reset='\033[0m'
 spinner_delay=0.2
 spinner_frames=( ⣾ ⣽ ⣻ ⢿ ⡿ ⣟ ⣯ ⣷ )
 spinner_pid=0
+stderr_file="" # For storing curl's stderr file path
 
 # Functions
 print_usage_and_exit() {
@@ -39,7 +40,15 @@ Examples:
 EOF
   exit ${1:-0}
 }
-
+# Central cleanup function
+cleanup() {
+    # This function is reliably called on any script exit.
+    # It ensures the spinner is stopped, cursor is restored, and temp files are removed.
+    stop_spinner
+    if [[ -n "$stderr_file" ]]; then
+        rm -f "$stderr_file"
+    fi
+}
 # Sanitize input
 sanitize_input() {
   tr -d '\000-\010\013\014\016-\037\177' <<< "$1"
@@ -190,17 +199,21 @@ call_api() {
       [{role: "user", content: $prompt}])  
     }')
 
+  # Use a temp file for stderr to make signal handling robust
+  stderr_file=$(mktemp)
+  
   start_spinner
-  curl_stderr=""
-  response=$(timeout "$timeout_seconds" curl -s -w "\n%{http_code}" "$base_url/chat/completions" \
+  response=$(curl -s -w "\n%{http_code}" --max-time "$timeout_seconds" "$base_url/chat/completions" \
     -H "Authorization: Bearer $OPENAI_API_KEY" \
     -H "Content-Type: application/json" \
-    -d "$json_payload" 2> >(curl_stderr=$(cat))
+    -d "$json_payload" 2>"$stderr_file"
   )
   stop_spinner
 
   http_code=${response##*$'\n'}
   http_body=${response%$'\n'*}
+  curl_stderr=$(<"$stderr_file") # Read stderr from the temp file
+  # The temp file is removed by the cleanup function on exit
 
   if (( http_code != 200 )); then
     echo "Request failed ($http_code):" >&2
@@ -251,7 +264,17 @@ handle_output() {
 }
 
 # Main script
-trap 'stop_spinner; exit' INT TERM EXIT
+# --- Sanity checks ---
+for cmd in curl jq; do
+  if ! command -v "$cmd" &> /dev/null; then
+    echo "Error: Required command '$cmd' is not installed." >&2
+    echo "Please install it and try again." >&2
+    exit 1
+  fi
+done
+# ---
+trap cleanup EXIT
+
 show_pipe_input=false
 is_bash_mode=false
 system_instruction="$system_instruction_general"
@@ -260,4 +283,3 @@ process_inputs "$@"
 build_prompt
 call_api
 handle_output
-trap - INT TERM EXIT
