@@ -78,8 +78,7 @@ stop_spinner() {
   kill "$spinner_pid" 2>/dev/null
   wait "$spinner_pid" 2>/dev/null
   spinner_pid=0
-  tput cr >&2
-  tput el >&2   # Clear to end of line
+  echo -ne "\r\033[2K" >&2
   tput cnorm >&2
 }
 
