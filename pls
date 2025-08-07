@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # Configuration
-base_url="https://open-bj.nopshop.com/openai/v1"
-# base_url="https://api.openai.com/v1"
+# base_url="https://open-bj.nopshop.com/openai/v1"
+base_url="https://api.openai.com/v1"
 model="gpt-4o"
 timeout_seconds=60
 max_input_length=64000
