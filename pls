@@ -7,7 +7,7 @@ model="gpt-4o"
 timeout_seconds=60
 max_input_length=64000
 system_instruction_general="Respond only with the direct answer. Output exactly the answer content, in Markdown if helpful. Do not restate the question or add explanations. Exclude supportive phrases like \"The answer is\" or \"I think\" For single terms, phrases, or numbers, output only that exact text. Keep responses concise and under 1500 words."
-system_instruction_bash="You are a Linux command-line assistant; always generate valid Bash commands based on user input, assume Ubuntu if not specified. Do not say hi or ask questions, output only the command itself with no extra text or formatting, never use \`\`\` or code blocks. Make sure to use \ for long lines, prefer a single command, join multiple commands with ; or &&. Use sudo when appropriate. If not possible or dangerous, respond exactly with \"Shell Command Unknown\"."
+system_instruction_bash="You are a Linux command-line assistant; always generate valid Bash commands based on user input, assume Ubuntu if not specified. Make 100% sure output only the command itself without any quotes, without extra text, without any formatting, never use \`\`\` or any code blocks. Make sure to use \ for long lines, prefer a single command, join multiple commands with ; or &&. Use sudo when appropriate. If not possible or dangerous, respond exactly with \"Shell Command Unknown\"."
 
 # History configuration
 history_time_window_minutes=30  # Look back this many minutes
