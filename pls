@@ -276,24 +276,36 @@ handle_output() {
       add_to_history "$user_prompt" "suggested shell cmd:\"$shell_command\""
 
       echo -e "${grey}$shell_command_explanation${reset}" >&2
-      echo -e "${green}>${reset}" >&2
-      if [ -t 1 ]; then
-          echo "$shell_command"
-      else
-          { echo "$shell_command" >&2; echo "$shell_command"; }
-      fi
 
-      echo "$shell_command" >> ~/.bash_history
-      echo -e "${grey}Press ${reset}Y${grey} to run. Any other key cancels [then use ↑ to edit].${reset}" >&2
-      read -n 1 -r response </dev/tty
-      echo "" >&2
+      while true; do
+        if [ -t 1 ]; then
+            echo -e "${grey}cmd:${green}>${reset}" >&2
+            echo "$shell_command"
+        else
+            { echo "$shell_command" >&2; echo "$shell_command"; }
+        fi
 
-      if [[ "$response" =~ ^[Yy]$ ]]; then
-          eval "$shell_command" 1>&2
-      else
-          echo -e "${grey}Command execution cancelled.${reset}" >&2
-      exit 0
-      fi
+        echo -e "${grey}Press ${reset}Y${grey} to run. ${reset}E${grey} to edit. Other key cancels.${reset}" >&2
+        read -s -n 1 -r response </dev/tty
+
+        case "$response" in
+          [Yy])
+            echo "$shell_command" >> ~/.bash_history
+            eval "$shell_command" 1>&2
+            exit 0
+            ;;
+          [Ee])
+            echo -ne "\033[A\033[2K"
+            echo -e "${grey}edit:${green}>${reset}" >&2
+            read -e -i "$shell_command" -p "" shell_command </dev/tty
+            ;;
+          *)
+            echo -e "${grey}Command execution cancelled.${reset}" >&2
+            exit 0
+            ;;
+        esac
+      done
+
   else # not about shell command, normal chat
       add_to_history "$user_prompt" "$other_response"
 
