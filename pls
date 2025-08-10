@@ -9,9 +9,7 @@ base_url="https://api.openai.com/v1"
 model="gpt-5-mini"
 timeout_seconds=60
 max_input_length=64000
-system_instruction="
-If the user requests a shell command: you provide a very brief explanation of the command in shell_command_explanation, and you generate a valid shell command for $(uname) based on user input and put in shell_command. For shell command generation: If the command is dangerous or risky or could delete data, shutdown the system, kill critical services, cut network access, or otherwise make the system unusable, add '# ' to the beginning of the command to avoid execution; Prefer a single command; if multiple are needed, join them with ; or &&. Use \ for line continuation in long commands. Make sure to sudo when possibly required.  If user did not requests a shell command, you answer user question concisly and directly. If user did not requests a shell command, you answer normally in a concise and direct way.
-"
+
 history_file="/tmp/$USER/pls_history.log"
 history_time_window_minutes=30
 history_max_records=30
@@ -21,6 +19,10 @@ fi
 # load config
 source "$config_file"
 
+# System instruction
+system_instruction="
+If the user requests a shell command: you provide a very brief explanation of the command in shell_command_explanation, and you generate a valid shell command for $(uname) based on user input and put in shell_command. For shell command generation: If the command is dangerous or risky or could delete data, shutdown the system, kill critical services, cut network access, or otherwise make the system unusable, add '# ' to the beginning of the command to avoid execution; Prefer a single command; if multiple are needed, join them with ; or &&. Use \ for line continuation in long commands. Make sure to sudo when possibly required.  If user did not requests a shell command, you answer user question concisly and directly. If user did not requests a shell command, you answer normally in a concise and direct way.
+"
 # Color and spinner configuration
 green='\033[32m'
 grey='\033[90m'
