@@ -1,18 +1,25 @@
 #!/bin/bash
 
-# Configuration
-base_url="https://open-bj.nopshop.com/openai/v1"
-# base_url="https://api.openai.com/v1"
-model="gpt-4o"
+config_file="$HOME/.config/pls/pls.conf"
+
+# create config file if first run
+if [[ ! -f "$config_file" ]]; then
+    mkdir -p "$(dirname "$config_file")" && cat > "$config_file" <<'EOF'
+base_url="https://api.openai.com/v1"
+model="gpt-5-mini"
 timeout_seconds=60
 max_input_length=64000
 system_instruction="
 If the user requests a shell command: you provide a very brief explanation of the command in shell_command_explanation, and you generate a valid shell command for $(uname) based on user input and put in shell_command. For shell command generation: If the command is dangerous or risky or could delete data, shutdown the system, kill critical services, cut network access, or otherwise make the system unusable, add '# ' to the beginning of the command to avoid execution; Prefer a single command; if multiple are needed, join them with ; or &&. Use \ for line continuation in long commands. Make sure to sudo when possibly required.  If user did not requests a shell command, you answer user question concisly and directly. If user did not requests a shell command, you answer normally in a concise and direct way.
 "
-# History configuration
-history_time_window_minutes=30  # Look back this many minutes
-history_max_records=30          # Max records to return if over this number
 history_file="/tmp/$USER/pls_history.log"
+history_time_window_minutes=30
+history_max_records=30
+EOF
+fi
+
+# load config
+source "$config_file"
 
 # Color and spinner configuration
 green='\033[32m'
@@ -30,8 +37,8 @@ pls v0.3
 Usage:    pls [-t] [messages...]                  # Chat and generate shell commands if requested
 Examples:        
           pls how to cook rice                    # Chat
-          pls show system time                    # Generate shell commands and wait for confirmation
-          pls delete all files from root          # Dangerous command will not run
+          pls show total files                    # "find . -type f | wc -l" show up and wait for confirmation
+          pls delete all files from root          # "# rm -rf /*" dangerous command will show up as comment
           echo how to cook rice | pls             # Use pipe input
           echo rice | pls how to cook             # Args + pipe (task from args, data from pipe)
           echo rice | pls -t how to cook          # ... to show pipe input
@@ -245,19 +252,18 @@ call_api() {
     [[ -n "$http_body" ]] && echo "$http_body" >&2 || echo "$curl_stderr" >&2
     exit 1
   else 
-    api_out_status=$(echo "$http_body" | jq -r '.output[0].status')
+    api_out_status=$(echo "$http_body" | jq -r '.output[] | select(.type=="message") | .status')
     if [ "$api_out_status" != "completed" ]; then
         echo "Response failed ($api_out_status)" >&2
         [[ -n "$http_body" ]] && echo "$http_body" >&2
         exit 1
     fi
   fi
-
   # jq 4 times is not optimal but to use read is just unreliable...
-  shell_command_requested=$(echo "$http_body" | jq -r '.output[0].content[0].text | fromjson | .shell_command_requested')
-  shell_command_explanation=$(echo "$http_body" | jq -r '.output[0].content[0].text | fromjson | .shell_command_explanation')
-  shell_command=$(echo "$http_body" | jq -r '.output[0].content[0].text | fromjson | .shell_command')
-  other_response=$(echo "$http_body" | jq -r '.output[0].content[0].text | fromjson | .other_response')
+  shell_command_requested=$(echo "$http_body" | jq -r '.output[] | select(.type=="message") | .content[].text | fromjson | .shell_command_requested')
+  shell_command_explanation=$(echo "$http_body" | jq -r '.output[] | select(.type=="message") | .content[].text | fromjson | .shell_command_explanation')
+  shell_command=$(echo "$http_body" | jq -r '.output[] | select(.type=="message") | .content[].text | fromjson | .shell_command')
+  other_response=$(echo "$http_body" | jq -r '.output[] | select(.type=="message") | .content[].text | fromjson | .other_response')
 }
 
 # Handle response for chat and bash mode
