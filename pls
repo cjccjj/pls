@@ -1,14 +1,14 @@
 #!/bin/bash
 
 # Configuration
-# base_url="https://open-bj.nopshop.com/openai/v1"
-base_url="https://api.openai.com/v1"
+base_url="https://open-bj.nopshop.com/openai/v1"
+# base_url="https://api.openai.com/v1"
 model="gpt-4o"
 timeout_seconds=60
 max_input_length=64000
-system_instruction_general="Respond only with the direct answer. Output exactly the answer content, in Markdown if helpful. Do not restate the question or add explanations. Exclude supportive phrases like \"The answer is\" or \"I think\" For single terms, phrases, or numbers, output only that exact text. Keep responses concise and under 1500 words."
-system_instruction_bash="You are a Linux command-line assistant; always generate valid Bash commands based on user input, assume Ubuntu if not specified. Make 100% sure output only the command itself without any quotes, without extra text, without any formatting, never use \`\`\` or any code blocks. Make sure to use \ for long lines, prefer a single command, join multiple commands with ; or &&. Use sudo when appropriate. If not possible or dangerous, respond exactly with \"Shell Command Unknown\"."
-
+system_instruction="
+If the user requests a shell command: you provide a very brief explanation of the command in shell_command_explanation, and you generate a valid shell command for $(uname) based on user input and put in shell_command. For shell command generation: If the command is dangerous or risky or could delete data, shutdown the system, kill critical services, cut network access, or otherwise make the system unusable, add '# ' to the beginning of the command to avoid execution; Prefer a single command; if multiple are needed, join them with ; or &&. Use \ for line continuation in long commands. Make sure to sudo when possibly required.  If user did not requests a shell command, you answer user question concisly and directly. If user did not requests a shell command, you answer normally in a concise and direct way.
+"
 # History configuration
 history_time_window_minutes=30  # Look back this many minutes
 history_max_records=30          # Max records to return if over this number
@@ -26,19 +26,19 @@ stderr_file="" # For storing curl's stderr file path
 # Functions
 print_usage_and_exit() {
   cat >&2 << EOF
-pls/plss v0.2
-Usage:    pls [-t] [messages...]                  # Chat with AI (input via args, pipe, or both)
-          plss <messages...>                      # Generate shell commands and confirm before running
+pls v0.3
+Usage:    pls [-t] [messages...]                  # Chat and generate shell commands if requested
 Examples:        
-          pls how to cook rice                    # Use args
-          echo how to cook rice | pls             # Use pipe
+          pls how to cook rice                    # Chat
+          pls show system time                    # Generate shell commands and wait for confirmation
+          pls delete all files from root          # Dangerous command will not run
+          echo how to cook rice | pls             # Use pipe input
           echo rice | pls how to cook             # Args + pipe (task from args, data from pipe)
           echo rice | pls -t how to cook          # ... to show pipe input
           pls name a dish | pls how to cook       # Chain commands (-t not needed)  
-          plss show system time                   # Must use args to generate shell commands
-          pls/plss -h                             # Show this help
+          pls -h                                  # Show this help
 EOF
-  exit ${1:-0}
+  exit "${1:-0}"
 }
 # Central cleanup function
 cleanup() {
@@ -130,9 +130,6 @@ display_truncated() {
 
 # Process command line arguments
 process_inputs() {
-  if [[ "$(basename "$0")" == "plss" ]]; then
-    is_bash_mode=true
-  fi
 
   case "$1" in
     -t) show_pipe_input=true; shift ;;
@@ -144,9 +141,6 @@ process_inputs() {
   [ ! -t 0 ] && piped_input="$(cat)"
 
   arg_input="$*"
-
-  [[ "$is_bash_mode" == "true" ]] && system_instruction="$system_instruction_bash"
-  
   [[ -z "$arg_input" && -z "$piped_input" ]] && print_usage_and_exit 1
 
   task="$arg_input"
@@ -178,31 +172,63 @@ build_prompt() {
   spinner_note="input $total_chars"
   [[ $was_truncated -eq 1 ]] && spinner_note="$spinner_note truncated"
 
-  user_prompt="$user_prompt; Follow all general rules."
 }
 
 # Call OpenAI API with prompt and history
 call_api() {
   history_messages=$(read_from_history)
+  # openai structured output
+  output_format=$(jq -n '{
+    type: "json_schema",
+    name: "shell_helper",
+    schema: {
+        type: "object",
+        properties: {
+            shell_command_requested: {
+                type: "boolean",
+                description: "Whether the user requested or implied needing a shell command."
+            },
+            shell_command_explanation: {
+                type: "string",
+                description: "A very brief explanation of the shell command."
+            },
+            shell_command: {
+                type: "string",
+                description: "The shell command to accomplish the task, if applicable."
+            },
+            other_response: {
+                type: "string",
+                description: "A clear and helpful general answer to the user request, if not about shell command"
+            }
+        },
+        required: ["shell_command_requested","shell_command","shell_command_explanation","other_response"],
+        additionalProperties: false
+    },
+    strict: true
+    }')
 
   json_payload=$(jq -n \
     --arg model "$model" \
     --arg sys "$system_instruction" \
     --argjson hist "$history_messages" \
     --arg prompt "$user_prompt" \
+    --argjson output_format "$output_format" \
     '{
-      model: $model,
-      messages: (
-      [{role: "system", content: $sys}] + 
-      $hist + 
-      [{role: "user", content: $prompt}])  
+        model: $model,
+        input: (
+        [{role: "developer", content: $sys}] + 
+        $hist + 
+        [{role: "user", content: $prompt}]),
+        text: {
+            format: $output_format
+        }
     }')
 
   # Use a temp file for stderr to make signal handling robust
   stderr_file=$(mktemp)
   
   start_spinner
-  response=$(curl -s -w "\n%{http_code}" --max-time "$timeout_seconds" "$base_url/chat/completions" \
+  response=$(curl -s -w "\n%{http_code}" --max-time "$timeout_seconds" "$base_url/responses" \
     -H "Authorization: Bearer $OPENAI_API_KEY" \
     -H "Content-Type: application/json" \
     -d "$json_payload" 2>"$stderr_file"
@@ -218,48 +244,58 @@ call_api() {
     echo "Request failed ($http_code):" >&2
     [[ -n "$http_body" ]] && echo "$http_body" >&2 || echo "$curl_stderr" >&2
     exit 1
+  else 
+    api_out_status=$(echo "$http_body" | jq -r '.output[0].status')
+    if [ "$api_out_status" != "completed" ]; then
+        echo "Response failed ($api_out_status)" >&2
+        [[ -n "$http_body" ]] && echo "$http_body" >&2
+        exit 1
+    fi
   fi
 
-  output=$(jq -r '.choices[0].message.content // ""' <<< "$http_body" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-
-  add_to_history "$user_prompt" "$output"
+  # jq 4 times is not optimal but to use read is just unreliable...
+  shell_command_requested=$(echo "$http_body" | jq -r '.output[0].content[0].text | fromjson | .shell_command_requested')
+  shell_command_explanation=$(echo "$http_body" | jq -r '.output[0].content[0].text | fromjson | .shell_command_explanation')
+  shell_command=$(echo "$http_body" | jq -r '.output[0].content[0].text | fromjson | .shell_command')
+  other_response=$(echo "$http_body" | jq -r '.output[0].content[0].text | fromjson | .other_response')
 }
 
 # Handle response for chat and bash mode
 handle_output() {
-  if $is_bash_mode; then
-    command="$output"
-    if [[ "$command" == "Shell Command Unknown" ]]; then
-      echo -e "${grey}Shell Command Unknown${reset}" >&2
+  #echo "Shell: $shell_command_requested"
+  if [ "$shell_command_requested" == "true" ]; then
+      add_to_history "$user_prompt" "suggested shell cmd:\"$shell_command\""
+
+      echo -e "${grey}$shell_command_explanation${reset}" >&2
+      echo -e "${green}>${reset}" >&2
+      if [ -t 1 ]; then
+          echo "$shell_command"
+      else
+          { echo "$shell_command" >&2; echo "$shell_command"; }
+      fi
+
+      echo "$shell_command" >> ~/.bash_history
+      echo -e "${grey}Press ${reset}Y${grey} to run. Any other key cancels [then use ↑ to edit].${reset}" >&2
+      read -n 1 -r response </dev/tty
+      echo "" >&2
+
+      if [[ "$response" =~ ^[Yy]$ ]]; then
+          eval "$shell_command" 1>&2
+      else
+          echo -e "${grey}Command execution cancelled.${reset}" >&2
       exit 0
-    fi
+      fi
+  else # not about shell command, normal chat
+      add_to_history "$user_prompt" "$other_response"
 
-    if [ -t 1 ]; then
-      echo "$command"
-    else
-      { echo "$command" >&2; echo "$command"; }
-    fi
-
-    echo "$command" >> ~/.bash_history
-    echo -e "${grey}Press ${reset}Y${grey} to run. Any other key cancels [then use ↑ to edit].${reset}" >&2
-    read -n 1 -r response </dev/tty
-    echo "" >&2
-
-    if [[ "$response" =~ ^[Yy]$ ]]; then
-      eval "$command" 1>&2
-    else
-      echo -e "${grey}Command execution cancelled.${reset}" >&2
-      exit 0
-    fi
-  else  # General chat mode
-    if [ -t 1 ]; then
-      command -v glow >/dev/null 2>&1 && { echo "$output" | glow - -w "$(tput cols)"; }  || echo "$output"
-    else
-      echo -e "$(display_truncated "$output")" >&2
-      echo "$output"
-    fi
-    [[ $was_truncated -eq 1 ]] && echo -e "${grey}(Truncated input - answer could be wrong or incomplete)${reset}" >&2
-  fi
+      if [ -t 1 ]; then
+          command -v glow >/dev/null 2>&1 && { echo "$other_response" | glow - -w "$(tput cols)"; }  || echo "$other_response"
+      else
+          echo -e "$(display_truncated "$other_response")" >&2
+          echo "$other_response"
+      fi
+  fi 
+  [[ $was_truncated -eq 1 ]] && echo -e "${grey}(Truncated input - answer could be wrong or incomplete)${reset}" >&2
 }
 
 # Main script
@@ -275,8 +311,7 @@ done
 trap cleanup EXIT
 
 show_pipe_input=false
-is_bash_mode=false
-system_instruction="$system_instruction_general"
+
 [[ -z "$OPENAI_API_KEY" ]] && { echo "OPENAI_API_KEY not set" >&2; exit 1; }
 process_inputs "$@"
 build_prompt
