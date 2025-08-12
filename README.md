@@ -49,8 +49,8 @@ pls uninstall the game and clean up
 - install curl and jq if not installed already
 - install glow (optional for Markdown render)
 - set OPENAI_API_KEY in env 
-- install please
+- install pls
 ```
-chmod +x ./please
-sudo cp ./please /usr/local/bin/please
+chmod +x ./pls
+sudo cp ./pls /usr/local/bin/pls
 ```
