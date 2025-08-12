@@ -1,38 +1,37 @@
 #!/bin/bash
 
-config_file="$HOME/.config/pls/pls.conf"
+# Configuration and Constants
+readonly CONFIG_FILE="$HOME/.config/pls/pls.conf"
+readonly GREEN='\033[32m'
+readonly GREY='\033[90m'
+readonly RESET='\033[0m'
+readonly SPINNER_DELAY=0.2
+readonly SPINNER_FRAMES=(⣾ ⣽ ⣻ ⢿ ⡿ ⣟ ⣯ ⣷)
 
-# create config file if first run
-if [[ ! -f "$config_file" ]]; then
-    mkdir -p "$(dirname "$config_file")" && cat > "$config_file" <<'EOF'
-base_url="https://api.openai.com/v1"
-model="gpt-5-mini"
-timeout_seconds=60
-max_input_length=64000
-
-history_file="/tmp/$USER/pls_history.log"
-history_time_window_minutes=30
-history_max_records=30
-EOF
-fi
-
-# load config
-source "$config_file"
+# Global variables
+config_file="$CONFIG_FILE"
+spinner_pid=0
+stderr_file=""
+show_pipe_input=false
+task=""
+input=""
+was_truncated=0
+shell_command_requested=""
+shell_command_explanation=""
+shell_command=""
+chat_response=""
+spinner_note=""
+user_prompt=""
 
 # System instruction
-system_instruction="
-If user requests a shell command, provide a very brief plain-text explanation as shell_command_explanation and generate a valid shell command using $(uname) based on user input as shell_command. If the command is risky like deletes data, shuts down system, kills critical services, cuts network then make sure to prefix it with '# ' to prevent execution. Prefer a single command; Use \ for line continuation on long commands. Use sudo if likely required. If no shell command requested, answer concisely and directly as other_response, prefer under 60 words, use Markdown. If asked for a fact or result, answer with only the exact value or fact in plain text. Do not include extra words, explanations, or complete sentences.
+readonly SYSTEM_INSTRUCTION="
+If user requests a shell command, provide a very brief plain-text explanation as shell_command_explanation and generate a valid shell command using $(uname) based on user input as shell_command. If the command is risky like deletes data, shuts down system, kills critical services, cuts network then make sure to prefix it with '# ' to prevent execution. Prefer a single command; Use \ for line continuation on long commands. Use sudo if likely required. If no shell command requested, answer concisely and directly as chat_response, prefer under 60 words, use Markdown. If asked for a fact or result, answer with only the exact value or fact in plain text. Do not include extra words, explanations, or complete sentences.
 "
-# Color and spinner configuration
-green='\033[32m'
-grey='\033[90m'
-reset='\033[0m'
-spinner_delay=0.2
-spinner_frames=( ⣾ ⣽ ⣻ ⢿ ⡿ ⣟ ⣯ ⣷ )
-spinner_pid=0
-stderr_file="" # For storing curl's stderr file path
 
-# Functions
+# ======================
+# FUNCTION DEFINITIONS
+# ======================
+
 print_usage_and_exit() {
   cat >&2 << EOF
 pls v0.4
@@ -52,39 +51,58 @@ Examples:
 EOF
   exit "${1:-0}"
 }
-# Central cleanup function
-cleanup() {
-    # This function is reliably called on any script exit.
-    # It ensures the spinner is stopped, cursor is restored, and temp files are removed.
-    stop_spinner
-    if [[ -n "$stderr_file" ]]; then
-        rm -f "$stderr_file"
-    fi
+
+initialize_config() {
+  if [[ ! -f "$config_file" ]]; then
+    mkdir -p "$(dirname "$config_file")" && cat > "$config_file" <<'EOF'
+base_url="https://api.openai.com/v1"
+model="gpt-4o"
+timeout_seconds=60
+max_input_length=64000
+
+history_file="/tmp/$USER/pls_history.log"
+history_time_window_minutes=10
+history_max_records=10
+EOF
+  fi
+  source "$config_file"
 }
-# Sanitize input
+
+check_dependencies() {
+  for cmd in curl jq; do
+    if ! command -v "$cmd" &> /dev/null; then
+      echo "Error: Required command '$cmd' is not installed." >&2
+      echo "Please install it and try again." >&2
+      exit 1
+    fi
+  done
+  [[ -z "$OPENAI_API_KEY" ]] && { echo "OPENAI_API_KEY not set" >&2; exit 1; }
+}
+
+cleanup() {
+  stop_spinner
+  [[ -n "$stderr_file" ]] && rm -f "$stderr_file"
+}
+
 sanitize_input() {
   tr -d '\000-\010\013\014\016-\037\177' <<< "$1"
 }
 
-# Show spinner while processing
 start_spinner() {
   (
     tput civis >&2
-    echo -ne "\n\n\n\n\n\033[5A" >&2  # Move down 5 lines then back up
-    # Print static part with placeholder for frame
-    echo -ne "\r_ $model ${grey}($spinner_note)${reset}:" >&2
+    echo -ne "\n\n\n\n\033[4A" >&2
+    echo -ne "\r\033[K\r_ $model ${GREY}($spinner_note)${RESET}:" >&2
     while :; do 
-      for frame in "${spinner_frames[@]}"; do
-        # Move cursor to beginning and print frame
-        echo -ne "\r${green}${frame}${reset}" >&2
-        sleep "$spinner_delay"
+      for frame in "${SPINNER_FRAMES[@]}"; do
+        echo -ne "\r${GREEN}${frame}${RESET}" >&2
+        sleep "$SPINNER_DELAY"
       done
     done
   ) & 
   spinner_pid=$!
 }
 
-# Stop spinner
 stop_spinner() {
   (( spinner_pid )) || return
   kill "$spinner_pid" 2>/dev/null
@@ -94,7 +112,6 @@ stop_spinner() {
   tput cnorm >&2
 }
 
-# Add user message and assistant response to history
 add_to_history() {
   local user_message="$1"
   local assistant_message="$2"
@@ -103,7 +120,6 @@ add_to_history() {
   mkdir -p "/tmp/$USER"
   touch "$history_file"
 
-  # Format message as JSON
   jq -n --arg role "user" --arg content "$user_message" \
     --arg time "$timestamp" \
     '{timestamp: $time, role: $role, content: $content}' >> "$history_file"
@@ -112,17 +128,12 @@ add_to_history() {
     '{timestamp: $time, role: $role, content: $content}' >> "$history_file"
 }
 
-# Read from history, excluding timestamps
 read_from_history() {
-  if [ ! -f "$history_file" ]; then
-    echo "[]"
-    return
-  fi
+  [[ -f "$history_file" ]] || { echo "[]"; return; }
 
   local now_epoch=$(date +%s)
   local cutoff=$(date -d "@$((now_epoch - history_time_window_minutes*60))" '+%Y-%m-%d %H:%M:%S')
 
-  # Filter by timestamp and trim if needed
   jq -s --arg cutoff "$cutoff" --argjson max "$history_max_records" '
     map(select(.timestamp >= $cutoff))
     | if length > $max then .[-$max:] else . end
@@ -130,19 +141,14 @@ read_from_history() {
   ' "$history_file"
 }
 
-# Display truncated input
 display_truncated() {
   local input="$1"
-  if (( ${#input} > 1000 )); then
-    printf "%s" "${grey}${input:0:1000} #display truncated...${reset}"
-  else
-    printf "%s" "${grey}$input${reset}"
-  fi
+  (( ${#input} > 1000 )) && 
+    printf "%s" "${GREY}${input:0:1000} #display truncated...${RESET}" ||
+    printf "%s" "${GREY}$input${RESET}"
 }
 
-# Process command line arguments
 process_inputs() {
-
   case "$1" in
     -t) show_pipe_input=true; shift ;;
     -h) print_usage_and_exit ;;
@@ -151,7 +157,6 @@ process_inputs() {
   [[ "$1" =~ ^- ]] && print_usage_and_exit 1
 
   [ ! -t 0 ] && piped_input="$(cat)"
-
   arg_input="$*"
   [[ -z "$arg_input" && -z "$piped_input" ]] && print_usage_and_exit 1
 
@@ -170,27 +175,25 @@ process_inputs() {
   fi
 }
 
-# Build prompt from task, input, and system instruction
 build_prompt() {
   if [[ -n "$task" && -n "$input" ]]; then
     user_prompt="Given the input: \"$input\", perform the task: \"$task\", and output the result only"
   elif [[ -n "$input" ]]; then
-    user_prompt=$input
+    user_prompt="$input"
+  elif [[ -n "$task" ]]; then
+    user_prompt="$task"
   else
-    user_prompt=$task
+    exit 1
   fi
 
   total_chars=${#user_prompt}
   spinner_note="input $total_chars"
   [[ $was_truncated -eq 1 ]] && spinner_note="$spinner_note truncated"
-
 }
 
-# Call OpenAI API with prompt and history
 call_api() {
-  history_messages=$(read_from_history)
-  # openai structured output
-  output_format=$(jq -n '{
+  local history_messages=$(read_from_history)
+  local output_format=$(jq -n '{
     type: "json_schema",
     name: "shell_helper",
     schema: {
@@ -208,20 +211,20 @@ call_api() {
                 type: "string",
                 description: "The shell command to accomplish the task, if applicable."
             },
-            other_response: {
+            chat_response: {
                 type: "string",
                 description: "A clear and helpful general answer to the user request, if not about shell command"
             }
         },
-        required: ["shell_command_requested","shell_command","shell_command_explanation","other_response"],
+        required: ["shell_command_requested","shell_command","shell_command_explanation","chat_response"],
         additionalProperties: false
     },
     strict: true
     }')
 
-  json_payload=$(jq -n \
+  local json_payload=$(jq -n \
     --arg model "$model" \
-    --arg sys "$system_instruction" \
+    --arg sys "$SYSTEM_INSTRUCTION" \
     --argjson hist "$history_messages" \
     --arg prompt "$user_prompt" \
     --argjson output_format "$output_format" \
@@ -236,107 +239,138 @@ call_api() {
         }
     }')
 
-  # Use a temp file for stderr to make signal handling robust
   stderr_file=$(mktemp)
-  
   start_spinner
-  response=$(curl -s -w "\n%{http_code}" --max-time "$timeout_seconds" "$base_url/responses" \
+  local response=$(curl -s -w "\n%{http_code}" --max-time "$timeout_seconds" "$base_url/responses" \
     -H "Authorization: Bearer $OPENAI_API_KEY" \
     -H "Content-Type: application/json" \
-    -d "$json_payload" 2>"$stderr_file"
-  )
+    -d "$json_payload" 2>"$stderr_file")
   stop_spinner
 
-  http_code=${response##*$'\n'}
-  http_body=${response%$'\n'*}
-  curl_stderr=$(<"$stderr_file") # Read stderr from the temp file
-  # The temp file is removed by the cleanup function on exit
+  local http_code=${response##*$'\n'}
+  local http_body=${response%$'\n'*}
+  local curl_stderr=$(<"$stderr_file")
 
   if (( http_code != 200 )); then
     echo "Request failed ($http_code):" >&2
     [[ -n "$http_body" ]] && echo "$http_body" >&2 || echo "$curl_stderr" >&2
     exit 1
   else 
-    api_out_status=$(echo "$http_body" | jq -r '.output[] | select(.type=="message") | .status')
-    if [ "$api_out_status" != "completed" ]; then
+    local api_out_status=$(echo "$http_body" | jq -r '.output[] | select(.type=="message") | .status')
+    if [[ "$api_out_status" != "completed" ]]; then
         echo "Response failed ($api_out_status)" >&2
         [[ -n "$http_body" ]] && echo "$http_body" >&2
         exit 1
     fi
   fi
-  # jq 4 times is not optimal but to use read is just unreliable...
+
   shell_command_requested=$(echo "$http_body" | jq -r '.output[] | select(.type=="message") | .content[].text | fromjson | .shell_command_requested')
   shell_command_explanation=$(echo "$http_body" | jq -r '.output[] | select(.type=="message") | .content[].text | fromjson | .shell_command_explanation')
   shell_command=$(echo "$http_body" | jq -r '.output[] | select(.type=="message") | .content[].text | fromjson | .shell_command')
-  other_response=$(echo "$http_body" | jq -r '.output[] | select(.type=="message") | .content[].text | fromjson | .other_response')
+  chat_response=$(echo "$http_body" | jq -r '.output[] | select(.type=="message") | .content[].text | fromjson | .chat_response')
 }
 
-# Handle response for chat and bash mode
-handle_output() {
-  #echo "Shell: $shell_command_requested"
-  if [ "$shell_command_requested" == "true" ]; then
-      add_to_history "$user_prompt" "suggested shell cmd:\"$shell_command\""
+handle_shell_command() {
+  add_to_history "$user_prompt" "suggested shell cmd:\"$shell_command\""
+  echo -e "${GREY}$shell_command_explanation${RESET}" >&2
 
-      echo -e "${grey}$shell_command_explanation${reset}" >&2
-
-      while true; do
-        if [ -t 1 ]; then
-            echo -e "${grey}cmd:${green}>${reset}" >&2
-            echo "$shell_command"
-        else
-            { echo "$shell_command" >&2; echo "$shell_command"; }
-        fi
-
-        echo -e "${grey}Press ${reset}Y${grey} to run. ${reset}E${grey} to edit. Other key cancels.${reset}" >&2
-        read -s -n 1 -r response </dev/tty
-
-        case "$response" in
-          [Yy])
-            echo "$shell_command" >> ~/.bash_history
-            eval "$shell_command" 1>&2
-            exit 0
-            ;;
-          [Ee])
-            echo -ne "\033[A\033[2K"
-            echo -e "${grey}edit:${green}>${reset}" >&2
-            read -e -i "$shell_command" -p "" shell_command </dev/tty
-            ;;
-          *)
-            echo -e "${grey}Command execution cancelled.${reset}" >&2
-            exit 0
-            ;;
-        esac
-      done
-
-  else # not about shell command, normal chat
-      add_to_history "$user_prompt" "$other_response"
-
-      if [ -t 1 ]; then
-          command -v glow >/dev/null 2>&1 && { echo "$other_response" | glow - -w "$(tput cols)"; }  || echo "$other_response"
-      else
-          echo -e "$(display_truncated "$other_response")" >&2
-          echo "$other_response"
-      fi
-  fi 
-  [[ $was_truncated -eq 1 ]] && echo -e "${grey}(Truncated input - answer could be wrong or incomplete)${reset}" >&2
-}
-
-# Main script
-# --- Sanity checks ---
-for cmd in curl jq; do
-  if ! command -v "$cmd" &> /dev/null; then
-    echo "Error: Required command '$cmd' is not installed." >&2
-    echo "Please install it and try again." >&2
-    exit 1
+  if [[ -t 1 ]]; then
+    while true; do
+      echo -e "${GREY}cmd:${GREEN}>${RESET}" >&2
+      echo "$shell_command"
+      echo -e "${GREY}Press ${RESET}Y${GREY} to run. ${RESET}E${GREY} to edit. Other key cancels.${RESET}" >&2
+      
+      read -s -n 1 -r response </dev/tty
+      case "$response" in
+        [Yy])
+          eval "$shell_command" 1>&2
+          echo "$shell_command" >> ~/.bash_history
+          exit 0
+          ;;
+        [Ee])
+          echo -ne "\033[A\033[2K"
+          echo -e "${GREY}edit:${GREEN}>${RESET}" >&2
+          read -e -i "$shell_command" -p "" shell_command </dev/tty
+          ;;
+        *)
+          echo -e "${GREY}Command execution cancelled.${RESET}" >&2
+          exit 0
+          ;;
+      esac
+    done
+  else
+    { echo "$shell_command" >&2; echo "$shell_command"; }
+    exit 0
   fi
-done
-# ---
+}
+
+handle_chat_response() {
+  add_to_history "$user_prompt" "$chat_response"
+
+  if [[ -t 1 ]]; then
+    if command -v glow >/dev/null 2>&1; then
+      echo "$chat_response" | glow - -w "$(tput cols)"
+    else
+      echo "$chat_response"
+    fi
+  else
+    echo -e "$(display_truncated "$chat_response")" >&2
+    echo "$chat_response"
+  fi
+}
+
+handle_output() {
+  if [[ "$shell_command_requested" == "true" ]]; then
+    handle_shell_command
+  else
+    handle_chat_response
+  fi
+  
+  [[ $was_truncated -eq 1 ]] && 
+    echo -e "${GREY}(Truncated input - answer could be wrong or incomplete)${RESET}" >&2
+}
+
+continuous_conversation() {
+  while :; do
+    echo -ne "\n" >&2 
+    echo -e "${GREY}empty or ${RESET}q${GREY} to quit, otherwise continue...${RESET}" >&2
+    echo -ne "\033[2A" >&2  
+    
+    if ! read -e -r -p "${rGREEN}>>${rRESET} " user_input </dev/tty; then
+      break  # Exit on read error (e.g., Ctrl-D)
+    fi
+
+    # Exit if input is empty or q/Q
+    if [[ -z "$user_input" || "$user_input" == "q" || "$user_input" == "Q" ]]; then
+      break
+    fi
+
+    # Process next input
+    task="$user_input"
+    input=""
+    was_truncated=0
+    build_prompt
+    call_api
+    handle_output
+  done
+}
+
+main() {
+  initialize_config
+  check_dependencies
+  process_inputs "$@"
+  build_prompt
+  call_api
+  handle_output
+
+  # Enter continuous conversation mode if applicable
+  if [[ -t 1 && "$shell_command_requested" != "true" ]]; then
+    continuous_conversation
+  fi
+}
+
+# ======================
+# EXECUTION STARTS HERE
+# ======================
 trap cleanup EXIT
-
-show_pipe_input=false
-
-[[ -z "$OPENAI_API_KEY" ]] && { echo "OPENAI_API_KEY not set" >&2; exit 1; }
-process_inputs "$@"
-build_prompt
-call_api
-handle_output
+main "$@"
