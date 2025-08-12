@@ -2,9 +2,9 @@
 
 # Configuration and Constants
 readonly CONFIG_FILE="$HOME/.config/pls/pls.conf"
-readonly GREEN='\033[32m'
-readonly GREY='\033[90m'
-readonly RESET='\033[0m'
+readonly GREEN=$'\033[32m'
+readonly GREY=$'\033[90m'
+readonly RESET=$'\033[0m'
 readonly SPINNER_DELAY=0.2
 readonly SPINNER_FRAMES=(⣾ ⣽ ⣻ ⢿ ⡿ ⣟ ⣯ ⣷)
 
@@ -36,6 +36,7 @@ print_usage_and_exit() {
   cat >&2 << EOF
 pls v0.4
 Usage:    pls [-t] [messages...]                  # Chat and generate shell commands if requested
+                                                  # Continue chat until quit
 Examples:        
           pls how to cook rice                    # Chat
           pls show total files                    # "find . -type f | wc -l" command show up and wait for run
@@ -56,13 +57,13 @@ initialize_config() {
   if [[ ! -f "$config_file" ]]; then
     mkdir -p "$(dirname "$config_file")" && cat > "$config_file" <<'EOF'
 base_url="https://api.openai.com/v1"
-model="gpt-4o"
+model="gpt-5-mini"
 timeout_seconds=60
 max_input_length=64000
 
 history_file="/tmp/$USER/pls_history.log"
-history_time_window_minutes=10
-history_max_records=10
+history_time_window_minutes=30
+history_max_records=30
 EOF
   fi
   source "$config_file"
@@ -71,12 +72,12 @@ EOF
 check_dependencies() {
   for cmd in curl jq; do
     if ! command -v "$cmd" &> /dev/null; then
-      echo "Error: Required command '$cmd' is not installed." >&2
-      echo "Please install it and try again." >&2
+      printf 'Error: Required command '\''%s'\'' is not installed.\n' "$cmd" >&2
+      printf 'Please install it and try again.\n' >&2
       exit 1
     fi
   done
-  [[ -z "$OPENAI_API_KEY" ]] && { echo "OPENAI_API_KEY not set" >&2; exit 1; }
+  [[ -z "$OPENAI_API_KEY" ]] && { printf 'OPENAI_API_KEY not set\n' >&2; exit 1; }
 }
 
 cleanup() {
@@ -91,11 +92,11 @@ sanitize_input() {
 start_spinner() {
   (
     tput civis >&2
-    echo -ne "\n\n\n\n\033[4A" >&2
-    echo -ne "\r\033[K\r_ $model ${GREY}($spinner_note)${RESET}:" >&2
+    printf '\n\n\n\n\033[4A' >&2
+    printf '\r\033[K\r_ %s %s(%s)%s:' "$model" "$GREY" "$spinner_note" "$RESET" >&2
     while :; do 
       for frame in "${SPINNER_FRAMES[@]}"; do
-        echo -ne "\r${GREEN}${frame}${RESET}" >&2
+        printf '\r%s%s%s' "$GREEN" "$frame" "$RESET" >&2
         sleep "$SPINNER_DELAY"
       done
     done
@@ -108,14 +109,15 @@ stop_spinner() {
   kill "$spinner_pid" 2>/dev/null
   wait "$spinner_pid" 2>/dev/null
   spinner_pid=0
-  echo -ne "\r\033[2K" >&2
+  printf '\r\033[2K' >&2
   tput cnorm >&2
 }
 
 add_to_history() {
   local user_message="$1"
   local assistant_message="$2"
-  local timestamp=$(date +'%Y-%m-%d %H:%M:%S')
+  local timestamp
+  timestamp=$(date +'%Y-%m-%d %H:%M:%S')
   
   mkdir -p "/tmp/$USER"
   touch "$history_file"
@@ -129,10 +131,12 @@ add_to_history() {
 }
 
 read_from_history() {
-  [[ -f "$history_file" ]] || { echo "[]"; return; }
+  [[ -f "$history_file" ]] || { printf '[]'; return; }
 
-  local now_epoch=$(date +%s)
-  local cutoff=$(date -d "@$((now_epoch - history_time_window_minutes*60))" '+%Y-%m-%d %H:%M:%S')
+  local now_epoch
+  now_epoch=$(date +%s)
+  local cutoff
+  cutoff=$(date -d "@$((now_epoch - history_time_window_minutes*60))" '+%Y-%m-%d %H:%M:%S')
 
   jq -s --arg cutoff "$cutoff" --argjson max "$history_max_records" '
     map(select(.timestamp >= $cutoff))
@@ -144,8 +148,8 @@ read_from_history() {
 display_truncated() {
   local input="$1"
   (( ${#input} > 1000 )) && 
-    printf "%s" "${GREY}${input:0:1000} #display truncated...${RESET}" ||
-    printf "%s" "${GREY}$input${RESET}"
+    printf '%s%s%s' "$GREY" "${input:0:1000} #display truncated..." "$RESET" ||
+    printf '%s%s%s' "$GREY" "$input" "$RESET"
 }
 
 process_inputs() {
@@ -170,8 +174,8 @@ process_inputs() {
   fi
 
   if $show_pipe_input && [[ -n "$input" ]]; then
-    echo "in" >&2
-    echo -e "$(display_truncated "$input")" >&2
+    printf 'in\n' >&2
+    printf '%s\n' "$(display_truncated "$input")" >&2
   fi
 }
 
@@ -192,8 +196,10 @@ build_prompt() {
 }
 
 call_api() {
-  local history_messages=$(read_from_history)
-  local output_format=$(jq -n '{
+  local history_messages
+  history_messages=$(read_from_history)
+  local output_format
+  output_format=$(jq -n '{
     type: "json_schema",
     name: "shell_helper",
     schema: {
@@ -222,7 +228,8 @@ call_api() {
     strict: true
     }')
 
-  local json_payload=$(jq -n \
+  local json_payload
+  json_payload=$(jq -n \
     --arg model "$model" \
     --arg sys "$SYSTEM_INSTRUCTION" \
     --argjson hist "$history_messages" \
@@ -241,25 +248,30 @@ call_api() {
 
   stderr_file=$(mktemp)
   start_spinner
-  local response=$(curl -s -w "\n%{http_code}" --max-time "$timeout_seconds" "$base_url/responses" \
+  local response
+  response=$(curl -s -w "\n%{http_code}" --max-time "$timeout_seconds" "$base_url/responses" \
     -H "Authorization: Bearer $OPENAI_API_KEY" \
     -H "Content-Type: application/json" \
     -d "$json_payload" 2>"$stderr_file")
   stop_spinner
 
-  local http_code=${response##*$'\n'}
-  local http_body=${response%$'\n'*}
-  local curl_stderr=$(<"$stderr_file")
+  local http_code
+  http_code=${response##*$'\n'}
+  local http_body
+  http_body=${response%$'\n'*}
+  local curl_stderr
+  curl_stderr=$(<"$stderr_file")
 
   if (( http_code != 200 )); then
-    echo "Request failed ($http_code):" >&2
-    [[ -n "$http_body" ]] && echo "$http_body" >&2 || echo "$curl_stderr" >&2
+    printf 'Request failed (%s):\n' "$http_code" >&2
+    [[ -n "$http_body" ]] && printf '%s\n' "$http_body" >&2 || printf '%s\n' "$curl_stderr" >&2
     exit 1
   else 
-    local api_out_status=$(echo "$http_body" | jq -r '.output[] | select(.type=="message") | .status')
+    local api_out_status
+    api_out_status=$(echo "$http_body" | jq -r '.output[] | select(.type=="message") | .status')
     if [[ "$api_out_status" != "completed" ]]; then
-        echo "Response failed ($api_out_status)" >&2
-        [[ -n "$http_body" ]] && echo "$http_body" >&2
+        printf 'Response failed (%s)\n' "$api_out_status" >&2
+        [[ -n "$http_body" ]] && printf '%s\n' "$http_body" >&2
         exit 1
     fi
   fi
@@ -272,34 +284,37 @@ call_api() {
 
 handle_shell_command() {
   add_to_history "$user_prompt" "suggested shell cmd:\"$shell_command\""
-  echo -e "${GREY}$shell_command_explanation${RESET}" >&2
+  printf '%s%s%s\n' "$GREY" "$shell_command_explanation" "$RESET" >&2
 
   if [[ -t 1 ]]; then
     while true; do
-      echo -e "${GREY}cmd:${GREEN}>${RESET}" >&2
-      echo "$shell_command"
-      echo -e "${GREY}Press ${RESET}Y${GREY} to run. ${RESET}E${GREY} to edit. Other key cancels.${RESET}" >&2
+      printf '%scmd:%s>%s\n' "$GREY" "$GREEN" "$RESET" >&2
+      printf '%s\n' "$shell_command"
+      printf '%sPress %sY%s to run. %sE%s to edit. Other key cancels and chat.%s\n' "$GREY" "$RESET" "$GREY" "$RESET" "$GREY" "$RESET" >&2
       
       read -s -n 1 -r response </dev/tty
       case "$response" in
         [Yy])
+          printf '\n' >&2
           eval "$shell_command" 1>&2
           echo "$shell_command" >> ~/.bash_history
           exit 0
           ;;
         [Ee])
-          echo -ne "\033[A\033[2K"
-          echo -e "${GREY}edit:${GREEN}>${RESET}" >&2
-          read -e -i "$shell_command" -p "" shell_command </dev/tty
+          printf '\033[1A\033[2K' >&2
+          printf '%sedit:%s>%s\n' "$GREY" "$GREEN" "$RESET" >&2
+          read -e -r -i "$shell_command" shell_command </dev/tty
           ;;
         *)
-          echo -e "${GREY}Command execution cancelled.${RESET}" >&2
+          printf '\033[1A\033[2K' >&2
+          printf '%sCommand cancelled.%s\n' "$GREY" "$RESET" >&2
+          continuous_conversation
           exit 0
           ;;
       esac
     done
   else
-    { echo "$shell_command" >&2; echo "$shell_command"; }
+    { printf '%s\n' "$shell_command" >&2; printf '%s\n' "$shell_command"; }
     exit 0
   fi
 }
@@ -311,11 +326,11 @@ handle_chat_response() {
     if command -v glow >/dev/null 2>&1; then
       echo "$chat_response" | glow - -w "$(tput cols)"
     else
-      echo "$chat_response"
+      printf '%s\n' "$chat_response"
     fi
   else
-    echo -e "$(display_truncated "$chat_response")" >&2
-    echo "$chat_response"
+    printf '%s\n' "$(display_truncated "$chat_response")" >&2
+    printf '%s\n' "$chat_response"
   fi
 }
 
@@ -327,16 +342,16 @@ handle_output() {
   fi
   
   [[ $was_truncated -eq 1 ]] && 
-    echo -e "${GREY}(Truncated input - answer could be wrong or incomplete)${RESET}" >&2
+    printf '%s(Truncated input - answer could be wrong or incomplete)%s\n' "$GREY" "$RESET" >&2
 }
 
 continuous_conversation() {
   while :; do
-    echo -ne "\n" >&2 
-    echo -e "${GREY}empty or ${RESET}q${GREY} to quit, otherwise continue...${RESET}" >&2
-    echo -ne "\033[2A" >&2  
+    printf '\n' >&2 
+    printf '%sEmpty or %sq%s to quit, otherwise continue...%s\n' "$GREY" "$RESET" "$GREY" "$RESET" >&2
+    printf '\033[2A' >&2
     
-    if ! read -e -r -p "${rGREEN}>>${rRESET} " user_input </dev/tty; then
+    if ! read -e -r -p "${GREEN}>>${RESET}" user_input </dev/tty; then
       break  # Exit on read error (e.g., Ctrl-D)
     fi
 
