@@ -276,10 +276,36 @@ call_api() {
     fi
   fi
 
-  shell_command_requested=$(echo "$http_body" | jq -r '.output[] | select(.type=="message") | .content[].text | fromjson | .shell_command_requested')
-  shell_command_explanation=$(echo "$http_body" | jq -r '.output[] | select(.type=="message") | .content[].text | fromjson | .shell_command_explanation')
-  shell_command=$(echo "$http_body" | jq -r '.output[] | select(.type=="message") | .content[].text | fromjson | .shell_command')
-  chat_response=$(echo "$http_body" | jq -r '.output[] | select(.type=="message") | .content[].text | fromjson | .chat_response')
+  # 4 jq looks cleaner, note there are new lines in value
+  shell_command_requested=$(jq -r '
+    .output[]
+    | select(.type=="message")
+    | .content[].text
+    | if type=="string" then (fromjson | .shell_command_requested) else .shell_command_requested end
+    | tostring
+  ' <<<"$http_body")
+
+  shell_command_explanation=$(jq -r '
+    .output[]
+    | select(.type=="message")
+    | .content[].text
+    | if type=="string" then (fromjson | .shell_command_explanation) else .shell_command_explanation end
+  ' <<<"$http_body")
+
+  shell_command=$(jq -r '
+    .output[]
+    | select(.type=="message")
+    | .content[].text
+    | if type=="string" then (fromjson | .shell_command) else .shell_command end
+  ' <<<"$http_body")
+
+  chat_response=$(jq -r '
+    .output[]
+    | select(.type=="message")
+    | .content[].text
+    | if type=="string" then (fromjson | .chat_response) else .chat_response end
+  ' <<<"$http_body")
+
 }
 
 handle_shell_command() {
