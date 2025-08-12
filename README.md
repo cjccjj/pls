@@ -1,5 +1,6 @@
-## please - please AI helper
-- A command-line helper that talks to OpenAI API, and generate shell commands that await your confirm to run 
+## pls - pls cli AI helper
+- A command-line helper that talks to OpenAI API, and generate shell commands that await your confirm to run
+- structured output ensures AI can chat and generate clean shell commands at same time 
 - support input from pipe, from both and command chaining
 - support a short term conversation history
 - support inline shell command edit
@@ -7,20 +8,20 @@
 
 ## Usage
 ```
-please v0.3
-Usage:    please [-t] [messages...]                  # Chat and generate shell commands if requested
+pls v0.4
+Usage:    pls [-t] [messages...]                  # Chat and generate shell commands if requested
 Examples:        
-          please how to cook rice                    # Chat
-          please show total files                    # "find . -type f | wc -l" command show up and wait for run
-          please delete all files from root          # "# rm -rf /*" dangerous command show up as comment
+          pls how to cook rice                    # Chat
+          pls show total files                    # "find . -type f | wc -l" command show up and wait for run
+          pls delete all files from root          # "# rm -rf /*" dangerous command show up as comment
           
-          echo how to cook rice | please             # Use pipe input
-          echo rice | please how to cook             # Args + pipe (task from args, data from pipe)
-          echo rice | please -t how to cook          # ... to show pipe input
-          please name a dish | please how to cook       # Chain commands
+          echo how to cook rice | pls             # Use pipe input
+          echo rice | pls how to cook             # Args + pipe (task from args, data from pipe)
+          echo rice | pls -t how to cook          # ... to show pipe input
+          pls name a dish | pls how to cook       # Chain commands
 
-          please -h                                  # Show this help
-          ~/.config/please/please.conf                  # Edit this file to change settings
+          pls -h                                  # Show this help
+          ~/.config/pls/pls.conf                  # Edit this file to change settings
 ```
 
 ## Examples to try

@@ -35,7 +35,7 @@ stderr_file="" # For storing curl's stderr file path
 # Functions
 print_usage_and_exit() {
   cat >&2 << EOF
-pls v0.3
+pls v0.4
 Usage:    pls [-t] [messages...]                  # Chat and generate shell commands if requested
 Examples:        
           pls how to cook rice                    # Chat
