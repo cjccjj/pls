@@ -4,10 +4,10 @@
 readonly CONFIG_FILE="$HOME/.config/pls/pls.conf"
 readonly GREEN=$'\033[32m'
 readonly GREY=$'\033[90m'
+readonly CYAN=$'\033[36m'
 readonly RESET=$'\033[0m'
 readonly SPINNER_DELAY=0.2
-readonly SPINNER_FRAMES=(⣾ ⣽ ⣻ ⢿ ⡿ ⣟ ⣯ ⣷)
-
+readonly SPINNER_FRAMES=(⣷ ⣯ ⣟ ⡿ ⢿ ⣻ ⣽ ⣾)
 # Global variables
 config_file="$CONFIG_FILE"
 spinner_pid=0
@@ -23,10 +23,21 @@ chat_response=""
 spinner_note=""
 user_prompt=""
 
+# Global variables declare - will be overwritten by config file
+base_url="https://api.openai.com/v1"
+model="gpt-4o"
+timeout_seconds=60
+max_input_length=64000
+
+history_file="$HOME/.config/pls/pls.log"
+history_time_window_minutes=30
+history_max_records=30
+
 # System instruction
-readonly SYSTEM_INSTRUCTION="
-If user requests a shell command, provide a very brief plain-text explanation as shell_command_explanation and generate a valid shell command using $(uname) based on user input as shell_command. If the command is risky like deletes data, shuts down system, kills critical services, cuts network then make sure to prefix it with '# ' to prevent execution. Prefer a single command; Use \ for line continuation on long commands. Use sudo if likely required. If no shell command requested, answer concisely and directly as chat_response, prefer under 60 words, use Markdown. If asked for a fact or result, answer with only the exact value or fact in plain text. Do not include extra words, explanations, or complete sentences.
+SYSTEM_INSTRUCTION="
+If user requests a shell command, provide a very brief plain-text explanation as shell_command_explanation and generate a valid shell command using $(uname) based on user input as shell_command. If the command is risky like deletes data, shuts down system, kills critical services, cuts network then make sure to prefix it with '# ' to prevent execution. Prefer a single command; always use '&&' to join commands, and use \ for line continuation on long commands. Use sudo if likely required. If no shell command requested, answer concisely and directly as chat_response, prefer under 60 words, use Markdown. If asked for a fact or result, answer with only the exact value or fact in plain text. Do not include extra words, explanations, or complete sentences.
 "
+GREETING="Say Hi, if user and assistant have talked about something, mention it, if not just say hi."
 
 # ======================
 # FUNCTION DEFINITIONS
@@ -35,20 +46,23 @@ If user requests a shell command, provide a very brief plain-text explanation as
 print_usage_and_exit() {
   cat >&2 << EOF
 pls v0.4
-Usage:    pls [-t] [messages...]                  # Chat and generate shell commands if requested
-                                                  # Continue chat until quit
-Examples:        
-          pls how to cook rice                    # Chat
-          pls show total files                    # "find . -type f | wc -l" command show up and wait for run
-          pls delete all files from root          # "# rm -rf /*" dangerous command show up as comment
-          
+Usage:    pls [messages...]                       # Chat with an input
+          > what is llm                           # Continue chat, q or empty input to quit
+                                                
+Examples:
+          pls                                     # Chat anything
+          pls count files                         # ls -1 | wc -l           # shell cmd wait for run
+          > include subdirs                       # find . -type f | wc -l  # shell cmd update
+
+Pipe and Chain:          
           echo how to cook rice | pls             # Use pipe input
           echo rice | pls how to cook             # Args + pipe (task from args, data from pipe)
           echo rice | pls -t how to cook          # ... to show pipe input
           pls name a dish | pls how to cook       # Chain commands
 
+Settings:
           pls -h                                  # Show this help
-          ~/.config/pls/pls.conf                  # Edit this file to change settings
+          nano ~/.config/pls/pls.conf             # Choose AI model and change settings
 EOF
   exit "${1:-0}"
 }
@@ -57,11 +71,11 @@ initialize_config() {
   if [[ ! -f "$config_file" ]]; then
     mkdir -p "$(dirname "$config_file")" && cat > "$config_file" <<'EOF'
 base_url="https://api.openai.com/v1"
-model="gpt-5-mini"
+model="gpt-4o"
 timeout_seconds=60
 max_input_length=64000
 
-history_file="/tmp/$USER/pls_history.log"
+history_file="$HOME/.config/pls/pls.log"
 history_time_window_minutes=30
 history_max_records=30
 EOF
@@ -92,8 +106,8 @@ sanitize_input() {
 start_spinner() {
   (
     tput civis >&2
-    printf '\n\n\n\n\033[4A' >&2
-    printf '\r\033[K\r_ %s %s(%s)%s:' "$model" "$GREY" "$spinner_note" "$RESET" >&2
+    printf '\n\n\n\n\n\033[5A' >&2
+    printf '\r\033[K\r_ %s %s(%s)%s:' "$GREY" "$model" "$spinner_note" "$RESET" >&2
     while :; do 
       for frame in "${SPINNER_FRAMES[@]}"; do
         printf '\r%s%s%s' "$GREEN" "$frame" "$RESET" >&2
@@ -131,18 +145,19 @@ add_to_history() {
 }
 
 read_from_history() {
-  [[ -f "$history_file" ]] || { printf '[]'; return; }
+  [[ -f "$history_file" ]] || { printf '[]'; return 0; }
 
-  local now_epoch
-  now_epoch=$(date +%s)
-  local cutoff
-  cutoff=$(date -d "@$((now_epoch - history_time_window_minutes*60))" '+%Y-%m-%d %H:%M:%S')
+  local cutoff_epoch
+  cutoff_epoch=$(( $(date +%s) - history_time_window_minutes * 60 ))
 
-  jq -s --arg cutoff "$cutoff" --argjson max "$history_max_records" '
-    map(select(.timestamp >= $cutoff))
-    | if length > $max then .[-$max:] else . end
-    | map({role, content})
-  ' "$history_file"
+  jq -s \
+    --argjson cutoff_epoch "$cutoff_epoch" \
+    --argjson max "$history_max_records" \
+    '
+      map(select((.timestamp | strptime("%Y-%m-%d %H:%M:%S") | mktime) >= $cutoff_epoch))
+      | if length > $max then .[-$max:] else . end
+      | map({role, content})
+    ' "$history_file"
 }
 
 display_truncated() {
@@ -161,12 +176,17 @@ process_inputs() {
   [[ "$1" =~ ^- ]] && print_usage_and_exit 1
 
   [ ! -t 0 ] && piped_input="$(cat)"
+  
   arg_input="$*"
-  [[ -z "$arg_input" && -z "$piped_input" ]] && print_usage_and_exit 1
+  
+  if [[ -z "$arg_input" && -z "$piped_input" ]]; then
+    task="$GREETING"
+  else
+    task="$arg_input"
+  fi
 
-  task="$arg_input"
   input=$(sanitize_input "$piped_input")
-
+  
   was_truncated=0
   if ((${#input} > max_input_length)); then
     was_truncated=1
@@ -181,7 +201,7 @@ process_inputs() {
 
 build_prompt() {
   if [[ -n "$task" && -n "$input" ]]; then
-    user_prompt="Given the input: \"$input\", perform the task: \"$task\", and output the result only"
+    user_prompt="Given the data: \"$input\", perform the task: \"$task\" using given data as input, and output the result only"
   elif [[ -n "$input" ]]; then
     user_prompt="$input"
   elif [[ -n "$task" ]]; then
@@ -305,94 +325,130 @@ call_api() {
     | .content[].text
     | if type=="string" then (fromjson | .chat_response) else .chat_response end
   ' <<<"$http_body")
-
-}
-
-handle_shell_command() {
-  add_to_history "$user_prompt" "suggested shell cmd:\"$shell_command\""
-  printf '%s%s%s\n' "$GREY" "$shell_command_explanation" "$RESET" >&2
-
-  if [[ -t 1 ]]; then
-    while true; do
-      printf '%scmd:%s>%s\n' "$GREY" "$GREEN" "$RESET" >&2
-      printf '%s\n' "$shell_command"
-      printf '%sPress %sY%s to run. %sE%s to edit. Other key cancels and chat.%s\n' "$GREY" "$RESET" "$GREY" "$RESET" "$GREY" "$RESET" >&2
-      
-      read -s -n 1 -r response </dev/tty
-      case "$response" in
-        [Yy])
-          printf '\n' >&2
-          eval "$shell_command" 1>&2
-          echo "$shell_command" >> ~/.bash_history
-          exit 0
-          ;;
-        [Ee])
-          printf '\033[1A\033[2K' >&2
-          printf '%sedit:%s>%s\n' "$GREY" "$GREEN" "$RESET" >&2
-          read -e -r -i "$shell_command" shell_command </dev/tty
-          ;;
-        *)
-          printf '\033[1A\033[2K' >&2
-          printf '%sCommand cancelled.%s\n' "$GREY" "$RESET" >&2
-          continuous_conversation
-          exit 0
-          ;;
-      esac
-    done
-  else
-    { printf '%s\n' "$shell_command" >&2; printf '%s\n' "$shell_command"; }
-    exit 0
-  fi
-}
-
-handle_chat_response() {
-  add_to_history "$user_prompt" "$chat_response"
-
-  if [[ -t 1 ]]; then
-    if command -v glow >/dev/null 2>&1; then
-      echo "$chat_response" | glow - -w "$(tput cols)"
-    else
-      printf '%s\n' "$chat_response"
-    fi
-  else
-    printf '%s\n' "$(display_truncated "$chat_response")" >&2
-    printf '%s\n' "$chat_response"
-  fi
-}
-
-handle_output() {
-  if [[ "$shell_command_requested" == "true" ]]; then
-    handle_shell_command
-  else
-    handle_chat_response
-  fi
-  
-  [[ $was_truncated -eq 1 ]] && 
-    printf '%s(Truncated input - answer could be wrong or incomplete)%s\n' "$GREY" "$RESET" >&2
 }
 
 continuous_conversation() {
-  while :; do
-    printf '\n' >&2 
-    printf '%sEmpty or %sq%s to quit, otherwise continue...%s\n' "$GREY" "$RESET" "$GREY" "$RESET" >&2
-    printf '\033[2A' >&2
-    
+  local last_action_type="new_assistant_response"
+
+  while true; do
+    if [[ "$last_action_type" == "new_assistant_response" ]]; then
+      if [[ "$shell_command_requested" == "true" ]]; then
+        last_action_type="cmd_new_response"
+      else
+        last_action_type="chat_new_response"
+      fi
+    fi
+
+    # add to history and print responses
+    case "$last_action_type" in
+      "cmd_new_response")
+        add_to_history "$user_prompt" "suggested shell cmd:\"$shell_command\""
+        printf '\n - %s%s%s\n\n' "$GREY" "$shell_command_explanation" "$RESET"
+        printf '\033[2K'
+        printf '%scmd:%s>%s\n' "$GREY" "$GREEN" "$RESET"
+        printf '%s\n\033[2K\n' "$shell_command"
+        # hint
+        printf '\n'
+        printf '%s( %sy%s to run, %se%s to edit, %sq%s to quit, or continue chat... )%s\n' "$GREY" "$CYAN" "$GREY" "$CYAN" "$GREY" "$CYAN" "$GREY" "$RESET"
+        printf '\033[2A'
+        ;;
+      "cmd_edited")
+        printf '\033[2A\033[2K'
+        printf '%supdated cmd:%s>%s\n' "$GREY" "$GREEN" "$RESET"
+        printf '%s\n\033[2K\n' "$shell_command"
+        # hint
+        printf '\n'
+        printf '%s( %sy%s to run, %se%s to edit, %sq%s to quit, or continue chat... )%s\n' "$GREY" "$CYAN" "$GREY" "$CYAN" "$GREY" "$CYAN" "$GREY" "$RESET"
+        printf '\033[2A'
+        ;;
+      "cmd_executed")
+        # hint
+        printf '\n'
+        printf '%s( %se%s to bring cmd again, %sq%s to quit, or continue chat... )%s\n' "$GREY" "$CYAN" "$GREY" "$CYAN" "$GREY" "$RESET"
+        printf '\033[2A'
+        ;;
+      "chat_new_response")
+        add_to_history "$user_prompt" "$chat_response"
+        if command -v glow >/dev/null 2>&1; then
+          echo "$chat_response" | glow - -w "$(tput cols)"
+        else
+          printf '%s\n' "$chat_response"
+        fi
+        # hint
+        printf '\n'
+        printf '%s( %sq%s to quit, or continue chat... )%s\n' "$GREY" "$CYAN" "$GREY" "$RESET"
+        printf '\033[2A'
+        ;;
+      *)
+        printf 'Menu Error\n' >&2
+        exit 1
+        ;;
+    esac
+
+    # get user input
     if ! read -e -r -p "${GREEN}>>${RESET}" user_input </dev/tty; then
       break  # Exit on read error (e.g., Ctrl-D)
     fi
+    case "${last_action_type}:${user_input}" in
+      cmd_new_response:[Yy]|cmd_edited:[Yy])
+        printf '\033[2K\n'
+        echo "$shell_command" >> ~/.bash_history
+        eval "$shell_command"
+        if [ $? -eq 0 ]; then
+          printf '%sCommand succeeded%s\n' "$GREY" "$RESET"
+          add_to_history "Command succeeded: \"$shell_command\"" "Ok"
+        else
+          printf '%sCommand failed%s\n' "$GREY" "$RESET"
+          add_to_history "Command failed: \"$shell_command\"" "Sorry"
+        fi
+        last_action_type="cmd_executed"
+        ;;
+      cmd_new_response:[Ee]|cmd_edited:[Ee]|cmd_executed:[Ee])
+        printf '\033[1A\033[2K'
+        printf '%sedit:%s>%s\n' "$GREY" "$GREEN" "$RESET"
+        printf '\033[2K'
+        
+        printf '\n'
+        printf '%s( %s⏎%s to finish edit)%s\n' "$GREY" "$CYAN" "$GREY" "$RESET"
+        printf '\033[2A'
 
-    # Exit if input is empty or q/Q
-    if [[ -z "$user_input" || "$user_input" == "q" || "$user_input" == "Q" ]]; then
-      break
+        single_line_shell_command=$(echo "$shell_command" | sed 's/\\$//' | tr '\n' ' ')
+        read -e -r -i "$single_line_shell_command" shell_command </dev/tty
+        if [[ -z "$shell_command" ]]; then
+          printf '\033[2K\n\033[2K'
+          printf '%sbye%s\n' "$GREY" "$RESET"
+          break
+        else 
+          last_action_type="cmd_edited"
+        fi
+        ;;
+      cmd_new_response:[Qq]|cmd_edited:[Qq]|cmd_executed:[Qq]|chat_new_response:[Qq])
+        printf '\033[2K\n'
+        printf '%sbye%s\n' "$GREY" "$RESET"
+        break
+        ;;
+      cmd_new_response:|cmd_edited:|cmd_executed:|chat_new_response:)
+        printf '\033[2K\n'
+        printf '%sbye%s\n' "$GREY" "$RESET"
+        break
+        ;;
+      cmd_new_response:?*|cmd_edited:?*|cmd_executed:?*|chat_new_response:?*)
+        last_action_type="new_user_prompt"
+        ;;
+      *)
+        printf 'Menu Error\n' >&2
+        exit 1
+    esac
+
+    # new request to api
+    if [[ "$last_action_type" == "new_user_prompt" ]]; then
+      task="$user_input"
+      input=""
+      was_truncated=0
+      build_prompt
+      call_api
+      last_action_type="new_assistant_response"
     fi
-
-    # Process next input
-    task="$user_input"
-    input=""
-    was_truncated=0
-    build_prompt
-    call_api
-    handle_output
   done
 }
 
@@ -402,12 +458,18 @@ main() {
   process_inputs "$@"
   build_prompt
   call_api
-  handle_output
 
   # Enter continuous conversation mode if applicable
-  if [[ -t 1 && "$shell_command_requested" != "true" ]]; then
+  if [[ -t 1 ]]; then
     continuous_conversation
-  fi
+  else
+    # If not a terminal, just output the response in plain text
+    if [[ "$shell_command_requested" == "true" ]]; then
+      printf '%s\n' "$shell_command"
+    else
+      printf '%s\n' "$chat_response"
+    fi
+  fi  
 }
 
 # ======================
