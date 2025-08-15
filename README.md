@@ -1,27 +1,31 @@
 ## pls - pls cli AI helper
 - A command-line helper that talks to OpenAI API, and generate shell commands that await your confirm to run
 - structured output ensures AI can chat and generate clean shell commands at same time 
-- support input from pipe, from both and command chaining
 - support a short term conversation history
-- support inline shell command edit
-- polite and very easy to use 
+- support input from pipe, and command chaining
+- support inline shell command regeneration and edit
+- polite and  easy to use 
 
 ## Usage
 ```
 pls v0.4
-Usage:    pls [-t] [messages...]                  # Chat and generate shell commands if requested
-Examples:        
-          pls how to cook rice                    # Chat
-          pls show total files                    # "find . -type f | wc -l" command show up and wait for run
-          pls delete all files from root          # "# rm -rf /*" dangerous command show up as comment
-          
+Usage:    pls [messages...]                       # Chat with an input
+          > what is llm                           # Continue chat, q or empty input to quit
+                                                
+Examples:
+          pls                                     # Chat anything
+          pls count files                         # ls -1 | wc -l           # shell cmd wait for run
+          > include subdirs                       # find . -type f | wc -l  # shell cmd update
+
+Pipe and Chain:          
           echo how to cook rice | pls             # Use pipe input
           echo rice | pls how to cook             # Args + pipe (task from args, data from pipe)
           echo rice | pls -t how to cook          # ... to show pipe input
           pls name a dish | pls how to cook       # Chain commands
 
+Settings:
           pls -h                                  # Show this help
-          ~/.config/pls/pls.conf                  # Edit this file to change settings
+          nano ~/.config/pls/pls.conf             # Choose AI model and change settings
 ```
 
 ## Examples to try
@@ -46,7 +50,7 @@ pls uninstall the game and clean up
 # hit y to uninstall the game 
 ```
 ## Installation
-- install curl and jq if not installed already
+- install jq if not installed already
 - install glow (optional for Markdown render)
 - set OPENAI_API_KEY in env 
 - install pls
