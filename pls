@@ -414,10 +414,9 @@ continuous_conversation() {
 
         single_line_shell_command=$(echo "$shell_command" | sed 's/\\$//' | tr '\n' ' ')
         if [[ "$(uname)" == "Darwin" ]]; then
-            shell_command="$single_line_shell_command"
-            vared -p "Command: " -c shell_command
+          shell_command=$(zsh -c "shell_command='$single_line_shell_command'; vared -p 'Command: ' -c shell_command; echo \$shell_command")
         else
-            read -e -r -i "$single_line_shell_command" shell_command </dev/tty
+          read -e -r -i "$single_line_shell_command" shell_command </dev/tty
         fi
         if [[ -z "$shell_command" ]]; then
           printf '\033[2K\n\033[2K'
