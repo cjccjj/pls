@@ -1,0 +1,46 @@
+name: macOS CLI Test
+
+on:
+  workflow_dispatch:   # manual trigger only
+
+jobs:
+  test:
+    runs-on: macos-latest
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      MY_APP_MODE: "test"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show shell versions
+        run: |
+          echo "Default user shell: $SHELL"
+          echo "Bash version at /bin/bash:"
+          /bin/bash --version | head -1
+          echo "Zsh version:"
+          zsh --version
+
+      - name: Install expect
+        run: brew install expect
+        
+      - name: Install jq
+        run: |
+          brew update
+          brew install jq        
+
+      - name: Make script executable
+        run: chmod +x ./pls
+
+      - name: Run interactive script with hardcoded input
+        run: |
+          expect <<'EOF'
+          spawn ./pls
+          # hardcoded inputs
+          send "show files\r"
+          send "e\r"
+          send "# edited\r"
+          send "y\r"
+          send "q\r"
+          expect eof
+          EOF
