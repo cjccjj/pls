@@ -25,24 +25,10 @@ jobs:
       - name: Install expect
         run: brew install expect
         
-      - name: Install jq
-        run: |
-          brew update
-          brew install jq        
-
       - name: Make script executable
-        run: chmod +x ./pls
-
-      - name: Run interactive script with hardcoded input
         run: |
-          expect <<'EOF'
-          spawn ./pls
-          # hardcoded inputs
-          expect ">>" { send "show files\r" }
-          expect "cmd:>" { send "e\r" }
-          expect "edit:>" { send "# edited\r" }
-          expect "updated cmd:>" { send "y\r" }
-          expect ">>" { send "q\r" }
+          chmod +x ./pls
+          chmod +x ./.github/scripts/simulate_chat.expect
 
-          expect eof
-          EOF
+      - name: Run interactive script with expect
+        run: ./.github/scripts/simulate_chat.expect
