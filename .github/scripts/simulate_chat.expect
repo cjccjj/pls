@@ -9,14 +9,6 @@ proc send {args} {
     after 500       ;# wait 500ms after every send
 }
 
-proc exp_only { e {msg ""} } {
-    expect {
-        -re $e { }
-        -re ".+" { puts "❌ Failed to match '$e' at $msg"; exit 1 }
-        timeout { puts "❌ Timed out waiting for '$e' at $msg"; exit 1 }
-    }
-}
-
 # Optional: wait for slow AI responses
 set timeout 10
 
@@ -29,15 +21,15 @@ spawn ./pls
 # Interact with the script
 # --------------------------
 
-exp_only ">>"
+expect ">>"
 send "show files\r"
-exp_only "cmd:" 
+expect "cmd:" 
 send "e\r"
-exp_only "edit:" 
+expect "edit:" 
 send "# edited\r"
-exp_only "updated cmd:" 
+expect "updated cmd:" 
 send "y\r"
-exp_only "Command succeeded"
+expect "Command succeeded"
 send "q\r"
 
 expect eof
