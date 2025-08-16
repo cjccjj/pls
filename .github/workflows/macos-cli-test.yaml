@@ -7,6 +7,7 @@ jobs:
   test:
     runs-on: macos-latest
     env:
+      TERM: xterm-256color
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       MY_APP_MODE: "test"
 
@@ -37,10 +38,11 @@ jobs:
           expect <<'EOF'
           spawn ./pls
           # hardcoded inputs
-          send "show files\r"
-          send "e\r"
-          send "# edited\r"
-          send "y\r"
-          send "q\r"
+          expect ">>" { send "show files\r" }
+          expect "cmd:>" { send "e\r" }
+          expect "edit:>" { send "# edited\r" }
+          expect "updated cmd:>" { send "y\r" }
+          expect ">>" { send "q\r" }
+
           expect eof
           EOF
