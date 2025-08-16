@@ -32,4 +32,5 @@ jobs:
 
       - name: Run interactive script with expect
         run: |
-          script -q -e -c "./.github/scripts/simulate_chat.expect" /dev/null
+          script -q -e /dev/null ./.github/scripts/simulate_chat.expect
+
