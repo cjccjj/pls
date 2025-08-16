@@ -13,6 +13,7 @@ config_file="$CONFIG_FILE"
 spinner_pid=0
 stderr_file=""
 show_pipe_input=false
+last_action_type="chat_fresh_start"
 task=""
 input=""
 was_truncated=0
@@ -37,8 +38,6 @@ history_max_records=30
 SYSTEM_INSTRUCTION="
 If user requests a shell command, provide a very brief plain-text explanation as shell_command_explanation and generate a valid shell command using $(uname) based on user input as shell_command. If the command is risky like deletes data, shuts down system, kills critical services, cuts network then make sure to prefix it with '# ' to prevent execution. Prefer a single command; always use '&&' to join commands, and use \ for line continuation on long commands. Use sudo if likely required. If no shell command requested, answer concisely and directly as chat_response, prefer under 60 words, use Markdown. If asked for a fact or result, answer with only the exact value or fact in plain text. Do not include extra words, explanations, or complete sentences.
 "
-GREETING="Say Hi, if user and assistant have talked about something, mention it, if not just say hi."
-
 # ======================
 # FUNCTION DEFINITIONS
 # ======================
@@ -50,7 +49,7 @@ Usage:    pls [messages...]                       # Chat with an input
           > what is llm                           # Continue chat, q or empty input to quit
                                                 
 Examples:
-          pls                                     # Chat anything
+          pls                                     # Start without input 
           pls count files                         # ls -1 | wc -l           # shell cmd wait for run
           > include subdirs                       # find . -type f | wc -l  # shell cmd update
 
@@ -180,8 +179,9 @@ process_inputs() {
   arg_input="$*"
   
   if [[ -z "$arg_input" && -z "$piped_input" ]]; then
-    task="$GREETING"
+    last_action_type="chat_fresh_start"
   else
+    last_action_type="new_user_prompt"
     task="$arg_input"
   fi
 
@@ -325,11 +325,11 @@ call_api() {
     | .content[].text
     | if type=="string" then (fromjson | .chat_response) else .chat_response end
   ' <<<"$http_body")
+
+  last_action_type="new_assistant_response"
 }
 
 continuous_conversation() {
-  local last_action_type="new_assistant_response"
-
   while true; do
     if [[ "$last_action_type" == "new_assistant_response" ]]; then
       if [[ "$shell_command_requested" == "true" ]]; then
@@ -355,7 +355,9 @@ continuous_conversation() {
       "cmd_edited")
         printf '\033[2A\033[2K'
         printf '%supdated cmd:%s>%s\n' "$GREY" "$GREEN" "$RESET"
-        printf '%s\n\033[2K\n' "$shell_command"
+        printf '\033[2K'
+        printf '%s\n' "$shell_command"
+        printf '\033[2K\n'
         # hint
         printf '\n'
         printf '%s( %sy%s to run, %se%s to edit, %sq%s to quit, or continue chat... )%s\n' "$GREY" "$CYAN" "$GREY" "$CYAN" "$GREY" "$CYAN" "$GREY" "$RESET"
@@ -379,6 +381,15 @@ continuous_conversation() {
         printf '%s( %sq%s to quit, or continue chat... )%s\n' "$GREY" "$CYAN" "$GREY" "$RESET"
         printf '\033[2A'
         ;;
+      "chat_fresh_start")
+        printf '\n  Hi!\n\n' # AI said hi
+        # hint
+        printf '\n'
+        printf '%s( %sq%s to quit, or continue chat... )%s\n' "$GREY" "$CYAN" "$GREY" "$RESET"
+        printf '\033[2A'
+        last_action_type="chat_new_response" # becasue AI said hi
+        ;;
+
       *)
         printf 'Menu Error\n' >&2
         exit 1
@@ -413,10 +424,12 @@ continuous_conversation() {
         printf '\033[2A'
 
         single_line_shell_command=$(echo "$shell_command" | sed 's/\\$//' | tr '\n' ' ')
+
         if [[ "$(uname)" == "Darwin" ]]; then
           shell_command=$(zsh -c "shell_command='$single_line_shell_command'; vared -p '${GREEN}>>${RESET}' -c shell_command; echo \$shell_command")
         else
           read -e -r -p "${GREEN}>>${RESET}" -i "$single_line_shell_command" shell_command </dev/tty
+
         fi
         if [[ -z "$shell_command" ]]; then
           printf '\033[2K\n\033[2K'
@@ -451,28 +464,41 @@ continuous_conversation() {
       was_truncated=0
       build_prompt
       call_api
-      last_action_type="new_assistant_response"
     fi
   done
+}
+
+# If not a terminal, just output the response in plain text
+single_time_output() {
+  if [[ "$last_action_type" == "new_assistant_response" ]]; then
+    if [[ "$shell_command_requested" == "true" ]]; then
+      printf '%s\n' "$shell_command"
+    else
+      printf '%s\n' "$chat_response"
+    fi
+  else
+    exit 1
+  fi
 }
 
 main() {
   initialize_config
   check_dependencies
   process_inputs "$@"
-  build_prompt
-  call_api
 
   # Enter continuous conversation mode if applicable
   if [[ -t 1 ]]; then
-    continuous_conversation
-  else
-    # If not a terminal, just output the response in plain text
-    if [[ "$shell_command_requested" == "true" ]]; then
-      printf '%s\n' "$shell_command"
+    if [[ last_action_type=="chat_fresh_start" ]]; then      
+      continuous_conversation
     else
-      printf '%s\n' "$chat_response"
+      build_prompt
+      call_api
+      continuous_conversation
     fi
+  else
+    build_prompt
+    call_api
+    single_time_output
   fi  
 }
 
