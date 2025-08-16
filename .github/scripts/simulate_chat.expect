@@ -11,7 +11,7 @@ proc send {args} {
 
 proc exp_only { e {msg ""} } {
     expect {
-        $e { }
+        -re $e { }
         -re ".+" { puts "❌ Failed to match '$e' at $msg"; exit 1 }
         timeout { puts "❌ Timed out waiting for '$e' at $msg"; exit 1 }
     }
