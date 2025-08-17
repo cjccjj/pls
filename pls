@@ -13,7 +13,7 @@ config_file="$CONFIG_FILE"
 spinner_pid=0
 stderr_file=""
 show_piped_input=false
-last_action_type="chat_fresh_start"
+last_action_type="empty_user_prompt"
 task=""
 input=""
 was_truncated=0
@@ -44,23 +44,21 @@ If user requests a shell command, provide a very brief plain-text explanation as
 
 print_usage_and_exit() {
   cat >&2 << EOF
-pls v0.4
+pls v0.51
+
 Usage:    pls [messages...]                       # Chat with an input
           > what is llm                           # Continue chat, q or empty input to quit
                                                 
-Examples:
-          pls                                     # Start without input 
+Examples: pls                                     # Start without input 
           pls count files                         # ls -1 | wc -l           # shell cmd wait for run
           > include subdirs                       # find . -type f | wc -l  # shell cmd update
 
 Pipe and Chain:          
-          echo how to cook rice | pls             # Use pipe input
+          echo how to cook rice | pls             # Use input from pipe
           echo rice | pls how to cook             # Args + pipe (task from args, data from pipe)
-          echo rice | pls -t how to cook          # ... to show pipe input
-          pls name a dish | pls how to cook       # Chain commands
+          pls name a dish | pls -p how to cook    # Chain commands and show piped input with -p
 
-Settings:
-          pls -h                                  # Show this help
+Settings: pls -h                                  # Show this help
           nano ~/.config/pls/pls.conf             # Choose AI model and change settings
 EOF
   exit "${1:-0}"
@@ -96,10 +94,6 @@ check_dependencies() {
 cleanup() {
   stop_spinner
   [[ -n "$stderr_file" ]] && rm -f "$stderr_file"
-}
-
-sanitize_input() {
-  tr -d '\000-\010\013\014\016-\037\177' <<< "$1"
 }
 
 start_spinner() {
@@ -159,16 +153,16 @@ read_from_history() {
     ' "$history_file"
 }
 
-display_truncated() {
-  local input="$1"
-  (( ${#input} > 1000 )) && 
-    printf '%s%s%s' "$GREY" "${input:0:1000} #display truncated..." "$RESET" ||
-    printf '%s%s%s' "$GREY" "$input" "$RESET"
+show_piped_input() {
+  printf '\n%s> %s' "$GREY" "$RESET" >&2
+  (( ${#piped_input} > 1000 )) && 
+    printf '%s%s%s\n' "$GREY" "${piped_input:0:1000} #display truncated..." "$RESET" ||
+    printf '%s%s%s\n' "$GREY" "$piped_input" "$RESET"
 }
 
 process_inputs() {
   case "$1" in
-    -t) show_piped_input="true"; shift ;;
+    -p) show_piped_input="true"; shift ;;
     -h) print_usage_and_exit ;;
     -?) print_usage_and_exit 1 ;;
   esac
@@ -176,49 +170,43 @@ process_inputs() {
 
   # read both input
   [ ! -t 0 ] && piped_input="$(cat)"
-    arg_input="$*"
+  arg_input="$*"
   
   # process piped input
   if [[ -n "$piped_input" ]]; then
-    piped_input=$(sanitize_input "$piped_input")
-    # truncated for api call
+    piped_input=$(tr -d '\000-\010\013\014\016-\037\177' <<< "$piped_input")  
     if ((${#piped_input} > max_input_length)); then
-    was_truncated=1
     piped_input="${piped_input:0:max_input_length}"
+    was_truncated=1
     fi
-    # truncated for display when -t enabled 
-    if [[ "$show_piped_input" == "true" ]]; then
-      printf 'in\n' >&2
-      printf '%s\n' "$(display_truncated "$piped_input")" >&2
-    fi
+    [[ "$show_piped_input" == "true" ]] && show_piped_input    
   fi
 }
 
 build_prompt() {
   if [[ -z "$piped_input" && -z "$arg_input" ]]; then
-    last_action_type="chat_fresh_start"
-    user_prompt=""
+    last_action_type="empty_user_prompt"
     return
-  else 
-    if [[ -n "$piped_input" && -n "$arg_input" ]]; then
-      user_prompt="Given the data: \"$piped_input\", perform the task: \"$arg_input\" using given data as input, and output the result only"
-    elif [[ -n "$piped_input" ]]; then
-      user_prompt="$piped_input"
-    elif [[ -n "$arg_input" ]]; then
-      user_prompt="$arg_input"
-    else
-      exit 1
-    fi
-    last_action_type="new_user_prompt"
-    total_chars=${#user_prompt}
-    spinner_note="input $total_chars"
-    [[ $was_truncated -eq 1 ]] && spinner_note="$spinner_note truncated"
   fi
+
+  if [[ -n "$piped_input" && -n "$arg_input" ]]; then
+    user_prompt="Given the data: \"$piped_input\", perform the task: \"$arg_input\" using given data as input, and output the result only"
+  elif [[ -n "$piped_input" ]]; then
+    user_prompt="$piped_input"
+  elif [[ -n "$arg_input" ]]; then
+    user_prompt="$arg_input"
+  fi
+  last_action_type="new_user_prompt"
+  total_chars=${#user_prompt}
+  spinner_note="input $total_chars"
+  [[ $was_truncated -eq 1 ]] && spinner_note="$spinner_note truncated"
 }
 
+# prepare request, send to API and parse response
 call_api() {
   local history_messages
   history_messages=$(read_from_history)
+  # see  https://platform.openai.com/docs/guides/structured-outputs
   local output_format
   output_format=$(jq -n '{
     type: "json_schema",
@@ -297,37 +285,40 @@ call_api() {
     fi
   fi
 
-  # 4 jq looks cleaner, note there are new lines in value
-  shell_command_requested=$(jq -r '
-    .output[]
-    | select(.type=="message")
-    | .content[].text
-    | if type=="string" then (fromjson | .shell_command_requested) else .shell_command_requested end
-    | tostring
-  ' <<<"$http_body")
+  # parse response 
+  vars=()
+  while IFS= read -r line; do
+      vars+=("$line")
+  done < <(
+    jq -r '.output[0].content[0].text
+      | fromjson
+      | [.shell_command_requested,
+        .shell_command_explanation,
+        .shell_command,
+        .chat_response] 
+      | @json' <<< "$http_body" | jq -c '.[]'
+  )
 
-  shell_command_explanation=$(jq -r '
-    .output[]
-    | select(.type=="message")
-    | .content[].text
-    | if type=="string" then (fromjson | .shell_command_explanation) else .shell_command_explanation end
-  ' <<<"$http_body")
-
-  shell_command=$(jq -r '
-    .output[]
-    | select(.type=="message")
-    | .content[].text
-    | if type=="string" then (fromjson | .shell_command) else .shell_command end
-  ' <<<"$http_body")
-
-  chat_response=$(jq -r '
-    .output[]
-    | select(.type=="message")
-    | .content[].text
-    | if type=="string" then (fromjson | .chat_response) else .chat_response end
-  ' <<<"$http_body")
-
+  shell_command_requested=${vars[0]} # true or false
+  shell_command_explanation=$(jq -r . <<< "${vars[1]}")
+  shell_command=$(jq -r . <<< "${vars[2]}")
+  chat_response=$(jq -r . <<< "${vars[3]}")
+  
   last_action_type="new_assistant_response"
+}
+
+# show menu under input line, supported menu_items one or more in "yeq"
+show_conversation_menu() {
+  menu_items="$1"
+  if [[ -z "$menu_items" || -n "${menu_items//[yeq]/}" ]]; then
+    printf 'Invalid menu items: %s\n' "$menu_items" >&2
+    exit 1
+  fi
+  printf '\n%s( %s' "$GREY" "$RESET"
+  [[ "$menu_items" == *y* ]] && printf '%sy%s to run, ' "$CYAN" "$GREY"
+  [[ "$menu_items" == *e* ]] && printf '%se%s to edit, ' "$CYAN" "$GREY"
+  [[ "$menu_items" == *q* ]] && printf '%sq%s to quit, ' "$CYAN" "$GREY"
+  printf '%sor continue chat... )%s\n\033[2A' "$GREY" "$RESET"
 }
 
 continuous_conversation() {
@@ -340,7 +331,7 @@ continuous_conversation() {
       fi
     fi
 
-    # add to history and print responses
+    # add to history and show responses according to its type
     case "$last_action_type" in
       "cmd_new_response")
         add_to_history "$user_prompt" "suggested shell cmd:\"$shell_command\""
@@ -348,10 +339,7 @@ continuous_conversation() {
         printf '\033[2K'
         printf '%scmd:%s>%s\n' "$GREY" "$GREEN" "$RESET"
         printf '%s\n\033[2K\n' "$shell_command"
-        # hint
-        printf '\n'
-        printf '%s( %sy%s to run, %se%s to edit, %sq%s to quit, or continue chat... )%s\n' "$GREY" "$CYAN" "$GREY" "$CYAN" "$GREY" "$CYAN" "$GREY" "$RESET"
-        printf '\033[2A'
+        show_conversation_menu "yeq"
         ;;
       "cmd_edited")
         printf '\033[2A\033[2K'
@@ -359,16 +347,10 @@ continuous_conversation() {
         printf '\033[2K'
         printf '%s\n' "$shell_command"
         printf '\033[2K\n'
-        # hint
-        printf '\n'
-        printf '%s( %sy%s to run, %se%s to edit, %sq%s to quit, or continue chat... )%s\n' "$GREY" "$CYAN" "$GREY" "$CYAN" "$GREY" "$CYAN" "$GREY" "$RESET"
-        printf '\033[2A'
+        show_conversation_menu "yeq"
         ;;
       "cmd_executed")
-        # hint
-        printf '\n'
-        printf '%s( %se%s to bring cmd again, %sq%s to quit, or continue chat... )%s\n' "$GREY" "$CYAN" "$GREY" "$CYAN" "$GREY" "$RESET"
-        printf '\033[2A'
+        show_conversation_menu "eq"
         ;;
       "chat_new_response")
         add_to_history "$user_prompt" "$chat_response"
@@ -377,17 +359,12 @@ continuous_conversation() {
         else
           printf '%s\n' "$chat_response"
         fi
-        # hint
-        printf '\n'
-        printf '%s( %sq%s to quit, or continue chat... )%s\n' "$GREY" "$CYAN" "$GREY" "$RESET"
-        printf '\033[2A'
+        show_conversation_menu "q"
         ;;
-      "chat_fresh_start")
+      "empty_user_prompt")
         printf '\n  Hi!\n\n' # AI said hi
         # hint
-        printf '\n'
-        printf '%s( %sq%s to quit, or continue chat... )%s\n' "$GREY" "$CYAN" "$GREY" "$RESET"
-        printf '\033[2A'
+        show_conversation_menu "q"
         last_action_type="chat_new_response" # becasue AI said hi
         ;;
 
@@ -457,7 +434,6 @@ continuous_conversation() {
         printf 'Menu Error\n' >&2
         exit 1
     esac
-
     # new request to api
     if [[ "$last_action_type" == "new_user_prompt" ]]; then
       arg_input="$user_input"
@@ -474,10 +450,8 @@ single_time_output() {
   if [[ "$last_action_type" == "new_assistant_response" ]]; then
     if [[ "$shell_command_requested" == "true" ]]; then
       printf '%s\n' "$shell_command"
-      printf '%s%s%s\n' "$GREY" "$shell_command" "$RESET" >&2
     else
       printf '%s\n' "$chat_response"
-      printf '%s%s%s\n' "$GREY" "$chat_response" "$RESET" >&2
     fi
   else
     exit 1
@@ -489,22 +463,18 @@ main() {
   check_dependencies
   process_inputs "$@"
   build_prompt
-  # Enter continuous conversation mode if applicable
+  # Enter continuous conversation mode if using interative shell
   if [[ -t 1 ]]; then
-    if [[ "$last_action_type" == "chat_fresh_start" ]]; then
-      continuous_conversation
-    else
+    if [[ "$last_action_type" == "new_user_prompt" ]]; then
       call_api
-      continuous_conversation
     fi
-  else
+    continuous_conversation
+  else # Piped output
     call_api
     single_time_output
   fi  
 }
 
-# ======================
 # EXECUTION STARTS HERE
-# ======================
 trap cleanup EXIT
 main "$@"
