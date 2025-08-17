@@ -357,7 +357,7 @@ continuous_conversation() {
         if command -v glow >/dev/null 2>&1; then
           echo "$chat_response" | glow - -w "$(tput cols)"
         else
-          printf '%s\n' "$chat_response"
+          printf '\n%s\n\n' "$chat_response"
         fi
         show_conversation_menu "q"
         ;;
