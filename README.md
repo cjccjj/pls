@@ -1,10 +1,10 @@
-## pls - pls cli AI helper
-- A command-line helper that talks to OpenAI API, and generate shell commands that await your confirm to run
-- structured output ensures AI can chat and generate clean shell commands at same time 
-- support a short term conversation history
-- support input from pipe, and command chaining
-- support inline shell command regeneration and edit
-- polite and  easy to use 
+## pls - cli AI helper
+- a command-line helper that talks to AI, and generate shell commands that await your confirm to run
+- structured output to ensure you can chat and get clean shell commands at the same time 
+- maintains a short term conversation history
+- support input from pipes, and command chaining
+- allow inline shell command regeneration and editing
+- polite, minimal, and easy to use 
 
 ## Usage
 ```
@@ -27,21 +27,19 @@ Settings: pls -h                                  # Show this help
 ```
 
 ## Examples to try
-```
-pls
-> how to get string length in java
-> in javascript
+ask anything 
 
-pls show total files and size
-> y # run and see output
-> including sub dirs
-> y # run again
-> e # edit command 
-> y # run again
-```
+<img width="643" height="327" alt="image" src="https://github.com/user-attachments/assets/77837a07-dcef-4dab-ab96-437463234b35" />
+
+generate a shell command and run it  
+request regeneration, or manually edit
+
+<img width="646" height="731" alt="image" src="https://github.com/user-attachments/assets/6524a0c3-5774-448f-9f19-99a367fcf8cb" />
+
+
 ## Installation
 - install jq if not installed already
-- install glow (optional for Markdown render)
+- install glow (optional for Markdown color rendering)
 - set OPENAI_API_KEY in env 
 - install pls
 ```
