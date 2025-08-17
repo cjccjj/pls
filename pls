@@ -12,7 +12,7 @@ readonly SPINNER_FRAMES=(⣷ ⣯ ⣟ ⡿ ⢿ ⣻ ⣽ ⣾)
 config_file="$CONFIG_FILE"
 spinner_pid=0
 stderr_file=""
-show_pipe_input=false
+show_piped_input=false
 last_action_type="chat_fresh_start"
 task=""
 input=""
@@ -168,51 +168,52 @@ display_truncated() {
 
 process_inputs() {
   case "$1" in
-    -t) show_pipe_input=true; shift ;;
+    -t) show_piped_input="true"; shift ;;
     -h) print_usage_and_exit ;;
     -?) print_usage_and_exit 1 ;;
   esac
   [[ "$1" =~ ^- ]] && print_usage_and_exit 1
 
+  # read both input
   [ ! -t 0 ] && piped_input="$(cat)"
+    arg_input="$*"
   
-  arg_input="$*"
-  
-  if [[ -z "$arg_input" && -z "$piped_input" ]]; then
-    last_action_type="chat_fresh_start"
-  else
-    last_action_type="new_user_prompt"
-    task="$arg_input"
-  fi
-
-  input=$(sanitize_input "$piped_input")
-  
-  was_truncated=0
-  if ((${#input} > max_input_length)); then
+  # process piped input
+  if [[ -n "$piped_input" ]]; then
+    piped_input=$(sanitize_input "$piped_input")
+    # truncated for api call
+    if ((${#piped_input} > max_input_length)); then
     was_truncated=1
-    input="${input:0:max_input_length}"
-  fi
-
-  if $show_pipe_input && [[ -n "$input" ]]; then
-    printf 'in\n' >&2
-    printf '%s\n' "$(display_truncated "$input")" >&2
+    piped_input="${piped_input:0:max_input_length}"
+    fi
+    # truncated for display when -t enabled 
+    if [[ "$show_piped_input" == "true" ]]; then
+      printf 'in\n' >&2
+      printf '%s\n' "$(display_truncated "$piped_input")" >&2
+    fi
   fi
 }
 
 build_prompt() {
-  if [[ -n "$task" && -n "$input" ]]; then
-    user_prompt="Given the data: \"$input\", perform the task: \"$task\" using given data as input, and output the result only"
-  elif [[ -n "$input" ]]; then
-    user_prompt="$input"
-  elif [[ -n "$task" ]]; then
-    user_prompt="$task"
-  else
-    exit 1
+  if [[ -z "$piped_input" && -z "$arg_input" ]]; then
+    last_action_type="chat_fresh_start"
+    user_prompt=""
+    return
+  else 
+    if [[ -n "$piped_input" && -n "$arg_input" ]]; then
+      user_prompt="Given the data: \"$piped_input\", perform the task: \"$arg_input\" using given data as input, and output the result only"
+    elif [[ -n "$piped_input" ]]; then
+      user_prompt="$piped_input"
+    elif [[ -n "$arg_input" ]]; then
+      user_prompt="$arg_input"
+    else
+      exit 1
+    fi
+    last_action_type="new_user_prompt"
+    total_chars=${#user_prompt}
+    spinner_note="input $total_chars"
+    [[ $was_truncated -eq 1 ]] && spinner_note="$spinner_note truncated"
   fi
-
-  total_chars=${#user_prompt}
-  spinner_note="input $total_chars"
-  [[ $was_truncated -eq 1 ]] && spinner_note="$spinner_note truncated"
 }
 
 call_api() {
@@ -391,7 +392,7 @@ continuous_conversation() {
         ;;
 
       *)
-        printf 'Menu Error\n' >&2
+        printf 'Menu Error - %s\n' "$last_action_type" >&2
         exit 1
         ;;
     esac
@@ -459,8 +460,8 @@ continuous_conversation() {
 
     # new request to api
     if [[ "$last_action_type" == "new_user_prompt" ]]; then
-      task="$user_input"
-      input=""
+      arg_input="$user_input"
+      piped_input=""
       was_truncated=0
       build_prompt
       call_api
@@ -473,8 +474,10 @@ single_time_output() {
   if [[ "$last_action_type" == "new_assistant_response" ]]; then
     if [[ "$shell_command_requested" == "true" ]]; then
       printf '%s\n' "$shell_command"
+      printf '%s%s%s\n' "$GREY" "$shell_command" "$RESET" >&2
     else
       printf '%s\n' "$chat_response"
+      printf '%s%s%s\n' "$GREY" "$chat_response" "$RESET" >&2
     fi
   else
     exit 1
@@ -485,18 +488,16 @@ main() {
   initialize_config
   check_dependencies
   process_inputs "$@"
-
+  build_prompt
   # Enter continuous conversation mode if applicable
   if [[ -t 1 ]]; then
-    if [[ last_action_type=="chat_fresh_start" ]]; then      
+    if [[ "$last_action_type" == "chat_fresh_start" ]]; then
       continuous_conversation
     else
-      build_prompt
       call_api
       continuous_conversation
     fi
   else
-    build_prompt
     call_api
     single_time_output
   fi  
