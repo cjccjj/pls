@@ -33,6 +33,8 @@ expect "Command succeeded"
 # talk to change to openai_2 profile
 send "change active profile to openai_2\r"
 expect "pls.conf"
+send "use BSD/macOS style"
+expect "pls.conf"
 send "y\r"
 expect "Command succeeded"
 send "q\r"
