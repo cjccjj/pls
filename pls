@@ -108,7 +108,7 @@ Special cases that you treat also as requesting a shell command:
 If user requests 'change active profile to \"profile_name\"', provide the shell_command as sed -i 's/^active=.*/active=\"profile_name\"/' ~/.config/pls/pls.conf , make sure \"profile_name\" in quotes, and shell_command_explanation as 'pls: run this to change active profile to \"profile_name\"'. 
 If user requests 'show active profile', provide the shell_command as cat ~/.config/pls/pls.conf | grep \"active\" , and shell_command_explanation as 'pls: show current active profile name'.
 If user requests 'delete all chat history', provide the shell_command as rm -f ~/.config/pls/pls.log , and shell_command_explanation as 'pls: delete all chat history'.
-Make sure to these shell_command use $(uname) style command.
+Make sure to provide these shell_commands in $(uname) style.
 "
 # ======================
 # FUNCTION DEFINITIONS

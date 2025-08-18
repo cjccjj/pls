@@ -10,7 +10,7 @@ proc send {args} {
 }
 
 # Optional: wait for slow AI responses
-set timeout 10
+set timeout 20
 
 # with default openai_1 profile, cmd generate and edit 
 spawn ./pls
