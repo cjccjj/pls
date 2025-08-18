@@ -12,14 +12,8 @@ proc send {args} {
 # Optional: wait for slow AI responses
 set timeout 10
 
-# --------------------------
-# Start the CLI script
-# --------------------------
+# with default openai_1 profile, cmd generate and edit 
 spawn ./pls
-
-# --------------------------
-# Interact with the script
-# --------------------------
 
 expect ">>"
 send "show files\r"
@@ -35,6 +29,39 @@ send "echo test\r"
 expect "echo test" 
 send "y\r"
 expect "Command succeeded"
+
+# talk to change to openai_2 profile
+send "change active profile to openai_2\r"
+expect "pls.conf"
+send "y\r"
+expect "Command succeeded"
 send "q\r"
+expect "bye"
+
+# restart with openai_2 profile
+spawn ./pls
+expect ">>"
+send "show files\r"
+expect "cmd"
+
+# talk to change to gemini_1 profile
+send "change active profile to gemini_1\r"
+expect "pls.conf"
+send "y\r"
+expect "Command succeeded"
+send "q\r"
+expect "bye"
+
+# restart with gemini_1 profile
+spawn ./pls
+expect ">>"
+send "delete all chat history\r"
+expect "pls.log"
+send "y\r"
+expect "Command succeeded"
+send "what we talked about?\r"
+expect "We discussed"
+send "q\r"
+expect "bye"
 
 expect eof
