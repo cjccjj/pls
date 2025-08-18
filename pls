@@ -8,8 +8,8 @@ readonly CYAN=$'\033[36m'
 readonly RESET=$'\033[0m'
 readonly SPINNER_DELAY=0.2
 readonly SPINNER_FRAMES=(⣷ ⣯ ⣟ ⡿ ⢿ ⣻ ⣽ ⣾)
+
 # Global variables
-config_file="$CONFIG_FILE"
 spinner_pid=0
 stderr_file=""
 show_piped_input=false
@@ -25,14 +25,81 @@ spinner_note=""
 user_prompt=""
 
 # Global variables declare - will be overwritten by config file
-base_url="https://api.openai.com/v1"
-model="gpt-4o"
+# Active profile
+active="openai_1"
+
+# Profile: openai_1
+openai_1_provider="openai"
+openai_1_model="gpt-4o"
+openai_1_url="https://api.openai.com/v1"
+openai_1_key="OPENAI_API_KEY"
+
+# Other global settings
 timeout_seconds=60
 max_input_length=64000
-
 history_file="$HOME/.config/pls/pls.log"
 history_time_window_minutes=30
 history_max_records=30
+
+initialize_config() {
+  if [[ ! -f "$CONFIG_FILE" ]]; then
+    mkdir -p "$(dirname "$CONFIG_FILE")" && cat > "$CONFIG_FILE" <<'EOF'
+# Active profile
+active="openai_1"
+
+# Profile: openai_1
+openai_1_provider="openai"
+openai_1_model="gpt-4o"
+openai_1_url="https://api.openai.com/v1"
+openai_1_key="OPENAI_API_KEY"
+
+# Profile: openai_2
+openai_2_provider="openai"
+openai_2_model="gpt-5"
+openai_2_url="https://api.openai.com/v1"
+openai_2_key="OPENAI_API_KEY"
+
+# Profile: gemini_1
+gemini_1_provider="gemini"
+gemini_1_model="gemini-2.5-flash"
+gemini_1_url="https://generativelanguage.googleapis.com/v1beta"
+gemini_1_key="GEMINI_API_KEY"
+
+# Other global settings
+timeout_seconds=60
+max_input_length=64000
+history_file="$HOME/.config/pls/pls.log"
+history_time_window_minutes=30
+history_max_records=30
+EOF
+  fi
+  if ! source "$CONFIG_FILE"; then
+    echo "Error: Failed to source config file" >&2
+    echo "$CONFIG_FILE" >&2
+    exit 1
+  fi
+
+  # check profile
+  profile="$active"
+  # Dynamically read profile fields
+  eval "api_provider=\$${profile}_provider"
+  eval "api_model=\$${profile}_model"
+  eval "api_base_url=\$${profile}_url"
+  eval "api_key_env=\$${profile}_key"
+
+  # Validate provider
+  if [[ "$api_provider" != "openai" && "$api_provider" != "gemini" ]]; then
+    echo "Error: Provider '$api_provider' for profile '$profile' is not supported." >&2
+    echo "$CONFIG_FILE" >&2
+    exit 1
+  else
+    api_key="${!api_key_env}"
+    if [[ -z "$api_key" ]]; then
+      echo "Error: API key for '$profile' not set. Please export $api_key_env"
+    exit 1
+    fi
+  fi
+}
 
 # System instruction
 SYSTEM_INSTRUCTION="
@@ -41,7 +108,6 @@ If user requests a shell command, provide a very brief plain-text explanation as
 # ======================
 # FUNCTION DEFINITIONS
 # ======================
-
 print_usage_and_exit() {
   cat >&2 << EOF
 pls v0.51
@@ -64,22 +130,6 @@ EOF
   exit "${1:-0}"
 }
 
-initialize_config() {
-  if [[ ! -f "$config_file" ]]; then
-    mkdir -p "$(dirname "$config_file")" && cat > "$config_file" <<'EOF'
-base_url="https://api.openai.com/v1"
-model="gpt-4o"
-timeout_seconds=60
-max_input_length=64000
-
-history_file="$HOME/.config/pls/pls.log"
-history_time_window_minutes=30
-history_max_records=30
-EOF
-  fi
-  source "$config_file"
-}
-
 check_dependencies() {
   for cmd in curl jq; do
     if ! command -v "$cmd" &> /dev/null; then
@@ -88,7 +138,6 @@ check_dependencies() {
       exit 1
     fi
   done
-  [[ -z "$OPENAI_API_KEY" ]] && { printf 'OPENAI_API_KEY not set\n' >&2; exit 1; }
 }
 
 cleanup() {
@@ -100,7 +149,7 @@ start_spinner() {
   (
     tput civis >&2
     printf '\n\n\n\n\n\033[5A' >&2
-    printf '\r\033[K\r_ %s %s(%s)%s:' "$GREY" "$model" "$spinner_note" "$RESET" >&2
+    printf '\r\033[K\r_ %s %s(%s)%s:' "$GREY" "$api_model" "$spinner_note" "$RESET" >&2
     while :; do 
       for frame in "${SPINNER_FRAMES[@]}"; do
         printf '\r%s%s%s' "$GREEN" "$frame" "$RESET" >&2
@@ -142,7 +191,9 @@ read_from_history() {
 
   local cutoff_epoch
   cutoff_epoch=$(( $(date +%s) - history_time_window_minutes * 60 ))
-
+  
+  case $api_provider in
+  openai)
   jq -s \
     --argjson cutoff_epoch "$cutoff_epoch" \
     --argjson max "$history_max_records" \
@@ -151,6 +202,22 @@ read_from_history() {
       | if length > $max then .[-$max:] else . end
       | map({role, content})
     ' "$history_file"
+  ;;
+  gemini)
+  jq -s \
+    --argjson cutoff_epoch "$cutoff_epoch" \
+    --argjson max "$history_max_records" \
+    '
+      map(select((.timestamp | strptime("%Y-%m-%d %H:%M:%S") | mktime) >= $cutoff_epoch))
+      | if length > $max then .[-$max:] else . end
+      | map({
+          "role": (if .role == "assistant" then "model" else "user" end),
+          "parts": [{"text": .content}]
+        })
+    ' "$history_file"
+  ;;
+  *) printf 'Unsupported API provider: %s\n' "$api_provider" >&2; exit 1 ;;
+  esac
 }
 
 show_piped_input() {
@@ -202,8 +269,92 @@ build_prompt() {
   [[ $was_truncated -eq 1 ]] && spinner_note="$spinner_note truncated"
 }
 
+call_gemini_api() {
+  local API_URL="$api_base_url/models/${api_model}:generateContent"
+  local history_messages
+  history_messages=$(read_from_history)
+
+  # Define the JSON schema for the structured output.
+  local json_schema_payload
+  json_schema_payload=$(jq -n '{
+    "type": "OBJECT",
+    "properties": {
+      "shell_command_requested": {
+        "type": "BOOLEAN",
+        "description": "Whether the user requested or implied needing a shell command."
+      },
+      "shell_command_explanation": {
+        "type": "STRING",
+        "description": "A very brief explanation of the shell command."
+      },
+      "shell_command": {
+        "type": "STRING",
+        "description": "The shell command to accomplish the task, if applicable."
+      },
+      "chat_response": {
+        "type": "STRING",
+        "description": "A clear and helpful general answer to the user request, if not about shell command"
+      }
+    },
+    "required": ["shell_command_requested", "shell_command_explanation", "shell_command", "chat_response"]
+  }')
+
+  # to enforce the structured output.
+  local json_payload
+  json_payload=$(jq -n \
+    --arg prompt "$user_prompt" \
+    --arg sys "$SYSTEM_INSTRUCTION" \
+    --argjson history "$history_messages" \
+    --argjson schema "$json_schema_payload" \
+  '{
+    "system_instruction": {
+      "parts": [
+        { "text": $sys }
+      ]
+    },
+    "contents": ($history + [
+      {
+        "role": "user",
+        "parts": [
+          { "text": $prompt }
+        ]
+      }
+    ]),
+    "generationConfig": {
+      "responseMimeType": "application/json",
+      "responseSchema": $schema
+    }
+  }')
+
+  stderr_file=$(mktemp)
+  start_spinner  # Make the API call using curl.
+  local response
+  response=$(curl -s -X POST \
+    -H "Content-Type: application/json" \
+    -d "${json_payload}" \
+    "${API_URL}?key=${api_key}")
+  stop_spinner
+  # Check for API errors and provide descriptive output.
+  curl_stderr=$(<"$stderr_file")
+  if echo "$response" | grep -q '"error"'; then
+    echo "API Error:" >&2
+    echo "$response" | jq . >&2
+    echo "$curl_stderr" >&2
+    return 1
+  fi
+  # parse response 
+  message_text=$(jq '.candidates[0].content.parts[0].text' <<<"$response")
+
+  shell_command_requested=$(jq -r 'fromjson | .shell_command_requested' <<< "$message_text")
+  shell_command_explanation=$(jq -r 'fromjson | .shell_command_explanation' <<< "$message_text")
+  shell_command=$(jq -r 'fromjson | .shell_command' <<< "$message_text")
+  chat_response=$(jq -r 'fromjson | .chat_response' <<< "$message_text")
+  
+  last_action_type="new_assistant_response"
+}
+
 # prepare request, send to API and parse response
-call_api() {
+call_openai_api() {
   local history_messages
   history_messages=$(read_from_history)
   # see  https://platform.openai.com/docs/guides/structured-outputs
@@ -239,7 +390,7 @@ call_api() {
 
   local json_payload
   json_payload=$(jq -n \
-    --arg model "$model" \
+    --arg model "$api_model" \
     --arg sys "$SYSTEM_INSTRUCTION" \
     --argjson hist "$history_messages" \
     --arg prompt "$user_prompt" \
@@ -258,8 +409,8 @@ call_api() {
   stderr_file=$(mktemp)
   start_spinner
   local response
-  response=$(curl -s -w "\n%{http_code}" --max-time "$timeout_seconds" "$base_url/responses" \
-    -H "Authorization: Bearer $OPENAI_API_KEY" \
+  response=$(curl -s -w "\n%{http_code}" --max-time "$timeout_seconds" "$api_base_url/responses" \
+    -H "Authorization: Bearer $api_key" \
     -H "Content-Type: application/json" \
     -d "$json_payload" 2>"$stderr_file")
   stop_spinner
@@ -284,27 +435,30 @@ call_api() {
         exit 1
     fi
   fi
-
-  # parse response 
-  vars=()
-  while IFS= read -r line; do
-      vars+=("$line")
-  done < <(
-    jq -r '.output[0].content[0].text
-      | fromjson
-      | [.shell_command_requested,
-        .shell_command_explanation,
-        .shell_command,
-        .chat_response] 
-      | @json' <<< "$http_body" | jq -c '.[]'
-  )
-
-  shell_command_requested=${vars[0]} # true or false
-  shell_command_explanation=$(jq -r . <<< "${vars[1]}")
-  shell_command=$(jq -r . <<< "${vars[2]}")
-  chat_response=$(jq -r . <<< "${vars[3]}")
   
+  # parse response
+  message_text=$(jq '
+    .output[]
+    | select(.type=="message")
+    | .content[]
+    | select(.type=="output_text")
+    | .text
+  ' <<<"$http_body")
+
+  shell_command_requested=$(jq -r 'fromjson | .shell_command_requested' <<< "$message_text")
+  shell_command_explanation=$(jq -r 'fromjson | .shell_command_explanation' <<< "$message_text")
+  shell_command=$(jq -r 'fromjson | .shell_command' <<< "$message_text")
+  chat_response=$(jq -r 'fromjson | .chat_response' <<< "$message_text")
+
   last_action_type="new_assistant_response"
+}
+
+call_api() {
+  case $api_provider in
+    openai) call_openai_api ;;
+    gemini) call_gemini_api ;;
+    *) printf 'Unsupported API provider: %s\n' "$api_provider" >&2; exit 1 ;;
+  esac
 }
 
 # show menu under input line, supported menu_items one or more in "yeq"
