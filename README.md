@@ -41,12 +41,11 @@ request regeneration, or manually edit
 ## Installation
 - install jq if not installed already
 - install glow (optional for Markdown color rendering)
-- install pls
+- download install pls by
 ```
 curl -OL https://raw.githubusercontent.com/cjccjj/pls/main/pls || { echo "Download failed"; exit 1; }
 mv ~/.config/pls/pls.conf ~/.config/pls/pls_old.conf 2>/dev/null || true
 chmod +x ./pls
 sudo cp ./pls /usr/local/bin/pls
 echo "run pls to start, or pls -h for help"
-```
-- 
+``` 
