@@ -1,5 +1,6 @@
 ## pls - cli AI helper
 - a command-line helper that talks to AI, and generate shell commands that await your confirm to run
+- support both Openai and Gemini
 - structured output to ensure you can chat and get clean shell commands at the same time 
 - maintains a short term conversation history
 - support input from pipes, and command chaining
@@ -40,9 +41,12 @@ request regeneration, or manually edit
 ## Installation
 - install jq if not installed already
 - install glow (optional for Markdown color rendering)
-- set OPENAI_API_KEY in env 
 - install pls
 ```
+curl -OL https://raw.githubusercontent.com/cjccjj/pls/main/pls || { echo "Download failed"; exit 1; }
+mv ~/.config/pls/pls.conf ~/.config/pls/pls_old.conf 2>/dev/null || true
 chmod +x ./pls
 sudo cp ./pls /usr/local/bin/pls
+echo "run pls to start, or pls -h for help"
 ```
+- 
