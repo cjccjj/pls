@@ -270,7 +270,6 @@ build_prompt() {
 }
 
 call_gemini_api() {
-  local API_URL="$api_base_url/models/${api_model}:generateContent"
   local history_messages
   history_messages=$(read_from_history)
 
@@ -329,10 +328,11 @@ call_gemini_api() {
   stderr_file=$(mktemp)
   start_spinner  # Make the API call using curl.
   local response
-  response=$(curl -s -X POST \
+  response=$(curl -s -X POST -w "\n%{http_code}" --max-time "$timeout_seconds" \
     -H "Content-Type: application/json" \
     -d "${json_payload}" \
-    "${API_URL}?key=${api_key}")
+    "${api_base_url}/models/${api_model}:generateContent?key=${api_key}" 2>"$stderr_file")
+
   stop_spinner
   # Check for API errors and provide descriptive output.
   curl_stderr=$(<"$stderr_file")
@@ -342,8 +342,29 @@ call_gemini_api() {
     echo "$curl_stderr" >&2
     return 1
   fi
-  # parse response 
-  message_text=$(jq '.candidates[0].content.parts[0].text' <<<"$response")
+
+  local http_code
+  http_code=${response##*$'\n'}
+  local http_body
+  http_body=${response%$'\n'*}
+  local curl_stderr
+  curl_stderr=$(<"$stderr_file")
+
+  if (( http_code != 200 )); then
+    printf 'Request failed (%s):\n' "$http_code" >&2
+    [[ -n "$http_body" ]] && printf '%s\n' "$http_body" >&2 || printf '%s\n' "$curl_stderr" >&2
+    exit 1
+  else
+    api_out_status=$(jq -r '.candidates[0]? | .finishReason // empty' <<<"$http_body")
+    if [[ "$api_out_status" != "STOP" ]]; then
+        printf 'Response failed (%s)\n' "$api_out_status" >&2
+        [[ -n "$http_body" ]] && printf '%s\n' "$http_body" >&2
+        exit 1
+    fi
+  fi
+
+  # parse response
+  message_text=$(jq '.candidates[0].content.parts[0].text' <<<"$http_body")
 
   shell_command_requested=$(jq -r 'fromjson | .shell_command_requested' <<< "$message_text")
   shell_command_explanation=$(jq -r 'fromjson | .shell_command_explanation' <<< "$message_text")
@@ -409,7 +430,7 @@ call_openai_api() {
   stderr_file=$(mktemp)
   start_spinner
   local response
-  response=$(curl -s -w "\n%{http_code}" --max-time "$timeout_seconds" "$api_base_url/responses" \
+  response=$(curl -s -X POST -w "\n%{http_code}" --max-time "$timeout_seconds" "$api_base_url/responses" \
     -H "Authorization: Bearer $api_key" \
     -H "Content-Type: application/json" \
     -d "$json_payload" 2>"$stderr_file")
@@ -428,10 +449,9 @@ call_openai_api() {
     exit 1
   else 
     local api_out_status
-    api_out_status=$(echo "$http_body" | jq -r '.output[] | select(.type=="message") | .status')
+    api_out_status=$(jq -r '.output[]? | select(.type=="message") | .status // empty' <<<"$http_body")
     if [[ "$api_out_status" != "completed" ]]; then
         printf 'Response failed (%s)\n' "$api_out_status" >&2
-        [[ -n "$http_body" ]] && printf '%s\n' "$http_body" >&2
         exit 1
     fi
   fi
