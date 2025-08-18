@@ -102,13 +102,25 @@ EOF
 }
 
 # System instruction
+shell_type="Linux"
+if [[ $(uname) == "Darwin" ]]; then 
+  shell_type=" macOS (Bash 3 with BSD utilities)"
+elif [[ $(uname) == "Linux" ]]; then
+  shell_type=" Linux (Bash 4+ with GNU utilities)"
+elif [[ $(uname) == "FreeBSD" ]]; then
+  shell_type=" FreeBSD (Bash 4+ with BSD utilities)"
+else
+  echo "Unsupported OS: $(uname)" >&2
+  exit 1
+fi
+
 SYSTEM_INSTRUCTION="
-If user requests a shell command, provide a very brief plain-text explanation as shell_command_explanation and generate a valid shell command using $(uname) based on user input as shell_command. If the command is risky like deletes data, shuts down system, kills critical services, cuts network then make sure to prefix it with '# ' to prevent execution. Prefer a single command; always use '&&' to join commands, and use \ for line continuation on long commands. Use sudo if likely required. If no shell command requested, answer concisely and directly as chat_response, prefer under 80 words, use Markdown. If asked for a fact or result, answer with only the exact value or fact in plain text. Do not include extra words, explanations, or complete sentences.
+If user requests a shell command, provide a very brief plain-text explanation as shell_command_explanation and generate a valid shell command for $(shell_type), based on user input as shell_command. If the command is risky like deletes data, shuts down system, kills critical services, cuts network then make sure to prefix it with '# ' to prevent execution. Prefer a single command; always use '&&' to join commands, and use \ for line continuation on long commands. Use sudo if likely required. If no shell command requested, answer concisely and directly as chat_response, prefer under 80 words, use Markdown. If asked for a fact or result, answer with only the exact value or fact in plain text. Do not include extra words, explanations, or complete sentences.
 Special cases that you treat also as requesting a shell command: 
 If user requests 'change active profile to \"profile_name\"', provide the shell_command as sed -i 's/^active=.*/active=\"profile_name\"/' ~/.config/pls/pls.conf , make sure \"profile_name\" in quotes, and shell_command_explanation as 'pls: run this to change active profile to \"profile_name\"'. 
 If user requests 'show active profile', provide the shell_command as cat ~/.config/pls/pls.conf | grep \"active\" , and shell_command_explanation as 'pls: show current active profile name'.
 If user requests 'delete all chat history', provide the shell_command as rm -f ~/.config/pls/pls.log , and shell_command_explanation as 'pls: delete all chat history'.
-Make sure to provide these shell_commands in $(uname) style.
+Make sure to adapt these shell_commands for $(shell_type).
 "
 # ======================
 # FUNCTION DEFINITIONS
