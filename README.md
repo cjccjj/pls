@@ -5,7 +5,8 @@
 - maintains a short term conversation history
 - support input from pipes, and command chaining
 - allow inline shell command regeneration and editing
-- polite, minimal, and easy to use 
+- polite, minimal, and easy to use
+- (experimental) change local config by talking, e.g. "change active profile to gemini_2", "delete all chat history"
 
 ## Usage
 ```
