@@ -24,7 +24,8 @@ chat_response=""
 spinner_note=""
 user_prompt=""
 
-# Global variables declare - will be overwritten by config file
+initialize_config() {
+# Default config from config file - will be overwritten by sourcing config file
 # Active profile
 active="openai_1"
 # Additional System Prompt - use with caution, may break functionality
@@ -35,14 +36,14 @@ openai_1_model="gpt-4o"
 openai_1_url="https://api.openai.com/v1"
 openai_1_key="OPENAI_API_KEY"
 
-# Other global settings
+# Other settings
 timeout_seconds=60
 max_input_length=64000
 history_file="$HOME/.config/pls/pls.log"
 history_time_window_minutes=30
 history_max_records=30
 
-initialize_config() {
+# Create config file with default settings if not exist
   if [[ ! -f "$CONFIG_FILE" ]]; then
     mkdir -p "$(dirname "$CONFIG_FILE")" && cat > "$CONFIG_FILE" <<'EOF'
 # Active profile
@@ -69,7 +70,7 @@ gemini_1_model="gemini-2.5-flash"
 gemini_1_url="https://generativelanguage.googleapis.com/v1beta"
 gemini_1_key="GEMINI_API_KEY"
 
-# Other global settings
+# Other settings
 timeout_seconds=60
 max_input_length=64000
 history_file="$HOME/.config/pls/pls.log"
@@ -77,7 +78,7 @@ history_time_window_minutes=30
 history_max_records=30
 EOF
   fi
-  
+  # source config file  
   if ! source "$CONFIG_FILE"; then
     echo "Error: Failed to source config file" >&2
     echo "$CONFIG_FILE" >&2
@@ -105,30 +106,31 @@ EOF
     fi
   fi
 
-# System instruction
-shell_type="Linux"
-if [[ $(uname) == "Darwin" ]]; then 
-  shell_type="macOS (Bash 3 with BSD utilities)"
-elif [[ $(uname) == "Linux" ]]; then
+  # System instruction
   shell_type="Linux"
-elif [[ $(uname) == "FreeBSD" ]]; then
-  shell_type="FreeBSD"
-else
-  echo "Unsupported OS: $(uname)" >&2
-  exit 1
-fi
+  if [[ $(uname) == "Darwin" ]]; then 
+    shell_type="macOS (Bash 3 with BSD utilities)"
+  elif [[ $(uname) == "Linux" ]]; then
+    shell_type="Linux"
+  elif [[ $(uname) == "FreeBSD" ]]; then
+    shell_type="FreeBSD"
+  else
+    echo "Unsupported OS: $(uname)" >&2
+    exit 1
+  fi
 
-SYSTEM_INSTRUCTION="
+  SYSTEM_INSTRUCTION="
 If user requests to run a shell command, provide a very brief plain-text explanation as shell_command_explanation and generate a valid shell command for ${shell_type} to fullfill user request. If the command is risky like deletes data, shuts down system, kills critical services, cuts network then make sure to prefix it with '# ' to prevent execution. Prefer a single command; always use '&&' to join commands, and use \ for line continuation on long commands. Use sudo if likely required. If no shell command requested, answer concisely and directly as chat_response, prefer under 80 words, use Markdown if it helps. If asked for a fact or result, answer with only the exact value or fact in plain text. Do not include extra words, explanations, or complete sentences.
 Special cases that you also treat as requesting to run a shell command: 
-If user requests 'change active profile to \"profile_name\"', provide the shell_command as sed -i 's/^active=.*/active=\"profile_name\"/' ~/.config/pls/pls.conf && initialize_config , make sure \"profile_name\" in quotes, and shell_command_explanation as 'pls: run to change active profile to \"profile_name\"'. 
-If user requests 'show active profile', provide the shell_command as cat ~/.config/pls/pls.conf | grep \"active\" , and shell_command_explanation as 'pls: show current active profile name'.
-If user requests 'delete all chat history', provide the shell_command as rm -f ~/.config/pls/pls.log , and shell_command_explanation as 'pls: delete all chat history'.
-If user requests 'edit config' or 'edit config file of pls', provide the shell_command as nano ~/.config/pls/pls.conf && initialize_config or use vi, and shell_command_explanation as 'pls: edit config file to change profile or settings'.
+If user requests 'show active profile or show current model', provide the shell_command as echo \"active profile: \${active} using \${api_model\} #pls\" , and shell_command_explanation as 'pls: show current active profile name and model in use'.
+If user requests 'change active profile to \"profile_name\"', provide the shell_command as active=\"profile_name\" && initialize_config #pls, make sure \"profile_name\" in quotes, and shell_command_explanation as 'pls: change active profile to \"profile_name\", too keep the change say \"edit config\"'.
+If user requests 'delete all chat history', provide the shell_command as rm -f ~/.config/pls/pls.log && echo \"chat history deleted\" #pls , and shell_command_explanation as 'pls: delete all chat history'.
+If user requests 'edit config' or 'edit config file of pls', provide the shell_command as nano ~/.config/pls/pls.conf && initialize_config #pls , or use vi, and shell_command_explanation as 'pls: edit config file to change profile or settings'.
 ${USER_SYSTEM_INSTRUCTION}
 Make sure to adapt these shell_commands in special cases for ${shell_type}.
 "
 }
+
 # ======================
 # FUNCTION DEFINITIONS
 # ======================
@@ -246,8 +248,8 @@ read_from_history() {
 
 show_piped_input() {
   printf '%s>%s\n' "$GREY" "$RESET" >&2
-  (( ${#piped_input} > 1000 )) && 
-    printf '%s%s%s\n' "$GREY" "${piped_input:0:1000} #display truncated..." "$RESET" ||
+  (( ${#piped_input} > 1500 )) &&
+    printf '%s%s%s\n' "$GREY" "${piped_input:0:1500} #display truncated..." "$RESET" ||
     printf '%s%s%s\n' "$GREY" "$piped_input" "$RESET"
 }
 
@@ -388,6 +390,7 @@ call_gemini_api() {
   fi
 
   # parse response
+  local message_text
   message_text=$(jq '.candidates[0].content.parts[0].text' <<<"$http_body")
 
   shell_command_requested=$(jq -r 'fromjson | .shell_command_requested' <<< "$message_text")
@@ -481,6 +484,7 @@ call_openai_api() {
   fi
   
   # parse response
+  local message_text
   message_text=$(jq '
     .output[]
     | select(.type=="message")
@@ -507,7 +511,7 @@ call_api() {
 
 # show menu under input line, supported menu_items one or more in "yeq"
 show_conversation_menu() {
-  menu_items="$1"
+  local menu_items="$1"
   if [[ -z "$menu_items" || -n "${menu_items//[yeq]/}" ]]; then
     printf 'Invalid menu items: %s\n' "$menu_items" >&2
     exit 1
