@@ -122,7 +122,7 @@ If user requests 'show active profile', provide the shell_command as cat ~/.conf
 If user requests 'delete all chat history', provide the shell_command as rm -f ~/.config/pls/pls.log , and shell_command_explanation as 'pls: delete all chat history'.
 Make sure to adapt these shell_commands for ${shell_type}.
 "
-echo "$SYSTEM_INSTRUCTION"
+# echo "$SYSTEM_INSTRUCTION"
 # ======================
 # FUNCTION DEFINITIONS
 # ======================
