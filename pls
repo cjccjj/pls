@@ -27,7 +27,8 @@ user_prompt=""
 # Global variables declare - will be overwritten by config file
 # Active profile
 active="openai_1"
-
+# Additional System Prompt - use with caution, may break functionality
+USER_SYSTEM_INSTRUCTION=""
 # Profile: openai_1
 openai_1_provider="openai"
 openai_1_model="gpt-4o"
@@ -46,6 +47,9 @@ initialize_config() {
     mkdir -p "$(dirname "$CONFIG_FILE")" && cat > "$CONFIG_FILE" <<'EOF'
 # Active profile
 active="openai_1"
+
+# Use with Caution: Additional System Instruction for shell command generation 
+# USER_SYSTEM_INSTRUCTION="If user requests ... , provide the shell_command as echo \"thank you\"... , shell_command_explanation as ... ."
 
 # Profile: openai_1
 openai_1_provider="openai"
@@ -73,6 +77,7 @@ history_time_window_minutes=30
 history_max_records=30
 EOF
   fi
+  
   if ! source "$CONFIG_FILE"; then
     echo "Error: Failed to source config file" >&2
     echo "$CONFIG_FILE" >&2
@@ -99,7 +104,6 @@ EOF
     exit 1
     fi
   fi
-}
 
 # System instruction
 shell_type="Linux"
@@ -113,16 +117,18 @@ else
   echo "Unsupported OS: $(uname)" >&2
   exit 1
 fi
-shell_type="macOS (Bash 3 with BSD utilities)"
+
 SYSTEM_INSTRUCTION="
-If user requests to run a shell command, provide a very brief plain-text explanation as shell_command_explanation and generate a valid shell command for ${shell_type} to fullfill user request. If the command is risky like deletes data, shuts down system, kills critical services, cuts network then make sure to prefix it with '# ' to prevent execution. Prefer a single command; always use '&&' to join commands, and use \ for line continuation on long commands. Use sudo if likely required. If no shell command requested, answer concisely and directly as chat_response, prefer under 80 words, use Markdown. If asked for a fact or result, answer with only the exact value or fact in plain text. Do not include extra words, explanations, or complete sentences.
-Special cases that you treat also as requesting to run a shell command: 
-If user requests 'change active profile to \"profile_name\"', provide the shell_command as sed -i 's/^active=.*/active=\"profile_name\"/' ~/.config/pls/pls.conf , make sure \"profile_name\" in quotes, and shell_command_explanation as 'pls: run this to change active profile to \"profile_name\"'. 
+If user requests to run a shell command, provide a very brief plain-text explanation as shell_command_explanation and generate a valid shell command for ${shell_type} to fullfill user request. If the command is risky like deletes data, shuts down system, kills critical services, cuts network then make sure to prefix it with '# ' to prevent execution. Prefer a single command; always use '&&' to join commands, and use \ for line continuation on long commands. Use sudo if likely required. If no shell command requested, answer concisely and directly as chat_response, prefer under 80 words, use Markdown if it helps. If asked for a fact or result, answer with only the exact value or fact in plain text. Do not include extra words, explanations, or complete sentences.
+Special cases that you also treat as requesting to run a shell command: 
+If user requests 'change active profile to \"profile_name\"', provide the shell_command as sed -i 's/^active=.*/active=\"profile_name\"/' ~/.config/pls/pls.conf && initialize_config , make sure \"profile_name\" in quotes, and shell_command_explanation as 'pls: run to change active profile to \"profile_name\"'. 
 If user requests 'show active profile', provide the shell_command as cat ~/.config/pls/pls.conf | grep \"active\" , and shell_command_explanation as 'pls: show current active profile name'.
 If user requests 'delete all chat history', provide the shell_command as rm -f ~/.config/pls/pls.log , and shell_command_explanation as 'pls: delete all chat history'.
-Make sure to adapt these shell_commands for ${shell_type}.
+If user requests 'edit config' or 'edit config file of pls', provide the shell_command as nano ~/.config/pls/pls.conf && initialize_config or use vi, and shell_command_explanation as 'pls: edit config file to change profile or settings'.
+${USER_SYSTEM_INSTRUCTION}
+Make sure to adapt these shell_commands in special cases for ${shell_type}.
 "
-# echo "$SYSTEM_INSTRUCTION"
+}
 # ======================
 # FUNCTION DEFINITIONS
 # ======================
@@ -239,7 +245,7 @@ read_from_history() {
 }
 
 show_piped_input() {
-  printf '\n%s> %s' "$GREY" "$RESET" >&2
+  printf '%s>%s\n' "$GREY" "$RESET" >&2
   (( ${#piped_input} > 1000 )) && 
     printf '%s%s%s\n' "$GREY" "${piped_input:0:1000} #display truncated..." "$RESET" ||
     printf '%s%s%s\n' "$GREY" "$piped_input" "$RESET"
