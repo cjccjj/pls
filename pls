@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Configuration and Constants
 readonly CONFIG_FILE="$HOME/.config/pls/pls.conf"
@@ -6,8 +6,13 @@ readonly GREEN=$'\033[32m'
 readonly GREY=$'\033[90m'
 readonly CYAN=$'\033[36m'
 readonly RESET=$'\033[0m'
+# Create wrapped versions specifically for readline prompts
+readonly GREEN_PROMPT=$'\001'"${GREEN}"$'\002'
+readonly RESET_PROMPT=$'\001'"${RESET}"$'\002'
+
 readonly SPINNER_DELAY=0.2
-readonly SPINNER_FRAMES=(⣷ ⣯ ⣟ ⡿ ⢿ ⣻ ⣽ ⣾)
+# readonly SPINNER_FRAMES=(⣷ ⣯ ⣟ ⡿ ⢿ ⣻ ⣽ ⣾)
+readonly SPINNER_FRAMES=(⠷ ⠯ ⠟ ⠻ ⠽ ⠾)
 
 # Global variables
 spinner_pid=0
@@ -85,7 +90,7 @@ EOF
     exit 1
   fi
 
-  # check profile
+  # apply profile
   profile="$active"
   # Dynamically read profile fields
   eval "api_provider=\$${profile}_provider"
@@ -123,7 +128,7 @@ EOF
 If user requests to run a shell command, provide a very brief plain-text explanation as shell_command_explanation and generate a valid shell command for ${shell_type} to fullfill user request. If the command is risky like deletes data, shuts down system, kills critical services, cuts network then make sure to prefix it with '# ' to prevent execution. Prefer a single command; always use '&&' to join commands, and use \ for line continuation on long commands. Use sudo if likely required. If no shell command requested, answer concisely and directly as chat_response, prefer under 80 words, use Markdown if it helps. If asked for a fact or result, answer with only the exact value or fact in plain text. Do not include extra words, explanations, or complete sentences.
 Special cases that you also treat as requesting to run a shell command: 
 If user requests 'show active profile or show current model', provide the shell_command as echo \"active profile: \${active} using \${api_model\} #pls\" , and shell_command_explanation as 'pls: show current active profile name and model in use'.
-If user requests 'change active profile to \"profile_name\"', provide the shell_command as active=\"profile_name\" && initialize_config #pls, make sure \"profile_name\" in quotes, and shell_command_explanation as 'pls: change active profile to \"profile_name\", too keep the change say \"edit config\"'.
+If user requests 'change active profile to \"profile_name\"', provide the shell_command as active=\"profile_name\" && apply_profile #pls, make sure \"profile_name\" in quotes, and shell_command_explanation as 'pls: change to \"profile_name\" for this session, to edit profiles and keep changes say \"edit config\"'.
 If user requests 'delete all chat history', provide the shell_command as rm -f ~/.config/pls/pls.log && echo \"chat history deleted\" #pls , and shell_command_explanation as 'pls: delete all chat history'.
 If user requests 'edit config' or 'edit config file of pls', provide the shell_command as nano ~/.config/pls/pls.conf && initialize_config #pls , or use vi, and shell_command_explanation as 'pls: edit config file to change profile or settings'.
 ${USER_SYSTEM_INSTRUCTION}
@@ -516,11 +521,13 @@ show_conversation_menu() {
     printf 'Invalid menu items: %s\n' "$menu_items" >&2
     exit 1
   fi
+  printf "\033[s" # save cursor position
   printf '\n%s( %s' "$GREY" "$RESET"
   [[ "$menu_items" == *y* ]] && printf '%sy%s to run, ' "$CYAN" "$GREY"
   [[ "$menu_items" == *e* ]] && printf '%se%s to edit, ' "$CYAN" "$GREY"
   [[ "$menu_items" == *q* ]] && printf '%sq%s to quit, ' "$CYAN" "$GREY"
-  printf '%sor continue chat... )%s\n\033[2A' "$GREY" "$RESET"
+  printf '%sor continue chat... )%s\n' "$GREY" "$RESET"
+  printf "\033[u" # restore cursor position
 }
 
 continuous_conversation() {
@@ -577,7 +584,7 @@ continuous_conversation() {
     esac
 
     # get user input
-    if ! read -e -r -p "${GREEN}>>${RESET}" user_input </dev/tty; then
+    if ! read -e -r -p "${GREEN_PROMPT}>>${RESET_PROMPT}" user_input </dev/tty; then
       break  # Exit on read error (e.g., Ctrl-D)
     fi
     case "${last_action_type}:${user_input}" in
@@ -599,17 +606,24 @@ continuous_conversation() {
         printf '%sedit:%s>%s\n' "$GREY" "$GREEN" "$RESET"
         printf '\033[2K'
         
+        printf "\033[s" # save cursor position
         printf '\n'
         printf '%s( %s⏎%s to finish edit)%s\n' "$GREY" "$CYAN" "$GREY" "$RESET"
-        printf '\033[2A'
+        printf "\033[u" # restore cursor position
 
-        single_line_shell_command=$(echo "$shell_command" | sed 's/\\$//' | tr '\n' ' ')
-
+        single_line_shell_command=$(echo "$shell_command" | sed 's/\\$//' | tr -d '\n')
         if [[ "$(uname)" == "Darwin" ]]; then
-          shell_command=$(zsh -c "shell_command='$single_line_shell_command'; vared -p '${GREEN}>>${RESET}' -c shell_command; echo \$shell_command")
+          GREEN_ZSH="%{$GREEN%}"
+          RESET_ZSH="%{$RESET%}"
+          
+          shell_command=$(zsh <<EOF
+            shell_command='$single_line_shell_command'
+            vared -p '$GREEN_ZSH>>$RESET_ZSH' -c shell_command
+            echo "\$shell_command"
+EOF
+          )
         else
-          read -e -r -p "${GREEN}>>${RESET}" -i "$single_line_shell_command" shell_command </dev/tty
-
+          read -e -r -p "${GREEN_PROMPT}>>${RESET_PROMPT}" -i "$single_line_shell_command" shell_command </dev/tty
         fi
         if [[ -z "$shell_command" ]]; then
           printf '\033[2K\n\033[2K'
