@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-echo "This will install 'pls' to /usr/local/bin (requires sudo)."
+echo "This will install/update 'pls' to /usr/local/bin (requires sudo)."
 read -p "Continue? [y/N] " a
 [[ "$a" != [yY] ]] && echo "Aborted." && exit 1
 
@@ -17,5 +17,5 @@ chmod +x "$tmp"
 sudo cp "$tmp" /usr/local/bin/pls
 rm -f "$tmp"
 
-echo "Installation complete."
+echo "Install/update done."
 echo "Run 'pls' to start, or 'pls -h' for help."
