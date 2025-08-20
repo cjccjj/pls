@@ -13,7 +13,7 @@ tmp=$(mktemp)
 echo "Downloading pls..."
 curl -fSL -# https://raw.githubusercontent.com/cjccjj/pls/main/pls -o "$tmp" || { echo "Download failed"; exit 1; }
 
-chmod +x "$tmp"
+chmod 755 "$tmp"
 sudo cp "$tmp" /usr/local/bin/pls
 rm -f "$tmp"
 
