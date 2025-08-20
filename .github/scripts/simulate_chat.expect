@@ -10,18 +10,22 @@ proc send {args} {
 }
 
 # Optional: wait for slow AI responses
-set timeout 20
+set timeout 25
 
 # with default openai_1 profile, cmd generate and edit 
 spawn ./pls
 
 expect ">>"
-send "show files\r"
-expect "cmd:" 
+send "run shell command of printf 'It'\''s done\n'\r"
+expect "printf" 
+send "y\r"
+expect "It's done"
 send "e\r"
 expect "edit:" 
 send "# edited\r"
 expect "updated cmd:" 
+send "y\r"
+expect "It's done"
 send "e\r"
 expect "edit:" 
 send "\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b"
