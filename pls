@@ -29,7 +29,7 @@ chat_response=""
 spinner_note=""
 user_prompt=""
 
-initialize_config() {
+load_and_apply_config() {
 # Default config from config file - will be overwritten by sourcing config file
 # Active profile
 active="openai_1"
@@ -89,7 +89,10 @@ EOF
     echo "$CONFIG_FILE" >&2
     exit 1
   fi
+  apply_profile
+}
 
+apply_profile() {
   # apply profile
   profile="$active"
   # Dynamically read profile fields
@@ -130,7 +133,7 @@ Special cases that you also treat as requesting to run a shell command:
 If user requests 'show active profile or show current model', provide the shell_command as echo \"active profile: \${active} using \${api_model\} #pls\" , and shell_command_explanation as 'pls: show current active profile name and model in use'.
 If user requests 'change active profile to \"profile_name\"', provide the shell_command as active=\"profile_name\" && apply_profile #pls, make sure \"profile_name\" in quotes, and shell_command_explanation as 'pls: change to \"profile_name\" for this session, to edit profiles and keep changes say \"edit config\"'.
 If user requests 'delete all chat history', provide the shell_command as rm -f ~/.config/pls/pls.log && echo \"chat history deleted\" #pls , and shell_command_explanation as 'pls: delete all chat history'.
-If user requests 'edit config' or 'edit config file of pls', provide the shell_command as nano ~/.config/pls/pls.conf && initialize_config #pls , or use vi, and shell_command_explanation as 'pls: edit config file to change profile or settings'.
+If user requests 'edit config' or 'edit config file of pls', provide the shell_command as nano ~/.config/pls/pls.conf && load_and_apply_config #pls , or use vi, and shell_command_explanation as 'pls: edit config file to change profile or settings'.
 ${USER_SYSTEM_INSTRUCTION}
 Make sure to adapt these shell_commands in special cases for ${shell_type}.
 "
@@ -675,7 +678,7 @@ single_time_output() {
 }
 
 main() {
-  initialize_config
+  load_and_apply_config
   check_dependencies
   process_inputs "$@"
   build_prompt
