@@ -44,13 +44,10 @@ request regeneration, or manually edit
 - install glow (optional for Markdown color rendering)
 - run the follow script to install or update
 ```bash
-read -p "Will install 'pls' to /usr/local/bin (sudo required). Hit y to continue: " a \
-&& [[ "$a" != [yY] ]] && echo "Aborted." && exit 1
-mv ~/.config/pls/pls.conf ~/.config/pls/pls_old.conf 2>/dev/null || true
-tmp=$(mktemp) \
-&& curl -sSL https://raw.githubusercontent.com/cjccjj/pls/main/pls -o "$tmp" \
-&& chmod +x "$tmp" \
-&& sudo cp "$tmp" /usr/local/bin/pls \
-&& rm -f "$tmp"
-echo "Installed. Run 'pls' or 'pls -h' for help."
-``` 
+curl -sSL https://raw.githubusercontent.com/cjccjj/pls/main/install.sh | bash
+```
+- to uninstall
+```bash
+sudo rm /usr/local/bin/pls # remove the bin
+rm -rf ~/.config/pls # remove config file and chat history
+```
