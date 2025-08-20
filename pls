@@ -616,15 +616,18 @@ continuous_conversation() {
 
         single_line_shell_command=$(echo "$shell_command" | sed 's/\\$//' | tr -d '\n')
         if [[ "$(uname)" == "Darwin" ]]; then
+          # For macOS with ZSH - use base64 encoding to safely pass the command
           GREEN_ZSH="%{$GREEN%}"
           RESET_ZSH="%{$RESET%}"
-          
-          shell_command=$(zsh <<EOF
-            shell_command='$single_line_shell_command'
+  
+          # Encode the command to safely pass it
+          encoded_command=$(printf '%s' "$single_line_shell_command" | base64)
+  
+          shell_command=$(zsh -c "
+            shell_command=\$(echo '$encoded_command' | base64 -d)
             vared -p '$GREEN_ZSH>>$RESET_ZSH' -c shell_command
-            echo "\$shell_command"
-EOF
-          )
+            echo \"\$shell_command\"
+            ")
         else
           read -e -r -p "${GREEN_PROMPT}>>${RESET_PROMPT}" -i "$single_line_shell_command" shell_command </dev/tty
         fi
