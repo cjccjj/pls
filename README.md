@@ -6,11 +6,11 @@
 - support input from pipes, and command chaining
 - allow inline shell command regeneration and editing
 - polite, minimal, and easy to use
-- (experimental) change local config by talking, e.g. "change active profile to gemini_2", "delete all chat history"
+- (experimental) change local config by talking, e.g. "edit config", "delete all chat history"
 
 ## Usage
 ```
-pls v0.51
+pls v0.5
 
 Usage:    pls [messages...]                       # Chat with an input
           > what is llm                           # Continue chat, q or empty input to quit
