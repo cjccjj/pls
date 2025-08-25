@@ -135,7 +135,7 @@ Make sure to adapt these shell_commands in special cases for ${shell_type}.
 # APP FUNCTION DEFINITIONS
 print_usage_and_exit() {
   cat >&2 << EOF
-pls v0.51
+pls v0.52
 
 Usage:    pls [messages...]                       # Chat with an input
           > what is llm                           # Continue chat, q or empty input to quit
