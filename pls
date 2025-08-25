@@ -167,14 +167,16 @@ check_dependencies() {
 
 cleanup() {
   stop_spinner
+  tput cnorm
   [[ -n "$stderr_file" ]] && rm -f "$stderr_file"
 }
 
 start_spinner() {
   (
-    tput civis; tput sc
+    tput sc 
+    tput civis
     printf '\n\n\n\n\n'; tput rc; tput el
-    printf '_%s %s%s:' "$GREY" "$api_model" "$RESET"
+    printf '_%s %s:%s' "$GREY" "$api_model" "$RESET"
     while :; do
       for frame in "${SPINNER_FRAMES[@]}"; do
         printf '\r%s%s%s' "$GREEN" "$frame" "$RESET"
@@ -508,9 +510,9 @@ show_conversation_menu() {
   [[ "$menu_items" == *r* ]] && printf '%sr%sun, ' "$CYAN" "$GREY"
   [[ "$menu_items" == *e* ]] && printf '%se%sdit, ' "$CYAN" "$GREY"
   [[ "$menu_items" == *q* ]] && printf '%sq%suit, ' "$CYAN" "$GREY"
-  printf '%sor continue chat... )%s\n' "$GREY" "$RESET"
+  printf '%sor continue chat... )%s' "$GREY" "$RESET"
   if [[ "$was_truncated" == "true" ]]; then
-    echo "Note: this response is generated on a truncated input" >&2
+    printf 'Note: this response is generated on a truncated input' >&2
   fi
   tput rc # restore cursor position
 }
@@ -596,7 +598,7 @@ continuous_conversation() {
 
         tput sc # save cursor position
         printf '\n'
-        printf '%s( %s⏎%s to finish edit)%s\n' "$GREY" "$CYAN" "$GREY" "$RESET"
+        printf '%s( %s⏎%s to finish edit)%s' "$GREY" "$CYAN" "$GREY" "$RESET"
         tput rc # restore cursor position
 
         single_line_shell_command=$(echo "$shell_command" | sed 's/\\$//' | tr -d '\n')
@@ -670,6 +672,7 @@ main() {
   check_dependencies
   process_inputs "$@"
   build_prompt
+  tput init
   # Enter continuous conversation mode if using interative shell
   if [[ -t 1 ]]; then
     if [[ "$last_action_type" == "new_user_prompt" ]]; then
