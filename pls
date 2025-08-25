@@ -215,7 +215,7 @@ read_from_history() {
 
   local cutoff_epoch
   cutoff_epoch=$(( $(date +%s) - history_time_window_minutes * 60 ))
-  
+  # use tail to avoid loading big history file
   case $api_provider in
   openai)
   tail -n $((history_max_records * 5)) "$history_file" \
@@ -285,9 +285,6 @@ build_prompt() {
 }
 
 call_gemini_api() {
-  local history_messages
-  history_messages=$(read_from_history)
-
   # Define the JSON schema for the structured output.
   local json_schema_payload
   json_schema_payload=$(jq -n '{
@@ -315,10 +312,12 @@ call_gemini_api() {
 
   # to enforce the structured output.
   local json_payload
-  json_payload=$(jq -n \
+  json_payload=$(
+    read_from_history \
+    | jq -n \
     --arg prompt "$user_prompt" \
     --arg sys "$SYSTEM_INSTRUCTION" \
-    --argjson history "$history_messages" \
+    --slurpfile history /dev/stdin \
     --argjson schema "$json_schema_payload" \
   '{
     "system_instruction": {
@@ -326,7 +325,7 @@ call_gemini_api() {
         { "text": $sys }
       ]
     },
-    "contents": ($history + [
+    "contents": ($history[0] + [
       {
         "role": "user",
         "parts": [
@@ -392,8 +391,6 @@ call_gemini_api() {
 
 # prepare request, send to API and parse response
 call_openai_api() {
-  local history_messages
-  history_messages=$(read_from_history)
   # see  https://platform.openai.com/docs/guides/structured-outputs
   local output_format
   output_format=$(jq -n '{
@@ -426,23 +423,24 @@ call_openai_api() {
     }')
 
   local json_payload
-  json_payload=$(jq -n \
+  json_payload=$(
+    read_from_history \
+    | jq -n \
     --arg model "$api_model" \
     --arg sys "$SYSTEM_INSTRUCTION" \
-    --argjson hist "$history_messages" \
+    --slurpfile history /dev/stdin \
     --arg prompt "$user_prompt" \
     --argjson output_format "$output_format" \
     '{
         model: $model,
         input: (
         [{role: "developer", content: $sys}] + 
-        $hist + 
+        $history[0] + 
         [{role: "user", content: $prompt}]),
         text: {
             format: $output_format
         }
     }')
-
   stderr_file=$(mktemp)
   start_spinner
   local response
@@ -531,7 +529,7 @@ continuous_conversation() {
     case "$last_action_type" in
       "cmd_new_response")
         add_to_history "$user_prompt" "suggested shell cmd:\"$shell_command\""
-        printf '\n - %s%s%s\n\n' "$GREY" "$shell_command_explanation" "$RESET"
+        printf '\n- %s%s%s\n\n' "$GREY" "$shell_command_explanation" "$RESET"
         tput el
         printf '%scmd:%s>%s\n' "$GREY" "$GREEN" "$RESET"
         printf '%s%s%s\n' "$YELLOW" "$shell_command" "$RESET"
@@ -579,7 +577,9 @@ continuous_conversation() {
     case "${last_action_type}:${user_input}" in
       cmd_new_response:[Rr]|cmd_edited:[Rr])
         echo "$shell_command" >> ~/.bash_history
+        tput el
         eval "$shell_command"
+        tput el
         if [ $? -eq 0 ]; then
           printf '%sCommand succeeded%s\n' "$GREY" "$RESET"
           add_to_history "Command succeeded: \"$shell_command\"" "Ok"
