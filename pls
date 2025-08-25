@@ -2,9 +2,10 @@
 
 # Configuration and Constants
 readonly CONFIG_FILE="$HOME/.config/pls/pls.conf"
-readonly GREEN=$'\033[32m'
-readonly GREY=$'\033[90m'
-readonly CYAN=$'\033[36m'
+readonly GREEN=$'\033[32m' # for line prompt (prefix not AI prompt)
+readonly GREY=$'\033[90m' # for informative messages
+readonly CYAN=$'\033[36m' # for menu shortcuts
+readonly YELLOW=$'\033[33m' # for shell command to be executed
 readonly RESET=$'\033[0m'
 # Create wrapped versions specifically for readline prompts
 readonly GREEN_PROMPT=$'\001'"${GREEN}"$'\002'
@@ -520,15 +521,15 @@ call_api() {
 # show menu under input line, supported menu_items one or more in "yeq"
 show_conversation_menu() {
   local menu_items="$1"
-  if [[ -z "$menu_items" || -n "${menu_items//[yeq]/}" ]]; then
+  if [[ -z "$menu_items" || -n "${menu_items//[req]/}" ]]; then
     printf 'Invalid menu items: %s\n' "$menu_items" >&2
     exit 1
   fi
   printf "\033[s" # save cursor position
   printf '\n%s( %s' "$GREY" "$RESET"
-  [[ "$menu_items" == *y* ]] && printf '%sy%s to run, ' "$CYAN" "$GREY"
-  [[ "$menu_items" == *e* ]] && printf '%se%s to edit, ' "$CYAN" "$GREY"
-  [[ "$menu_items" == *q* ]] && printf '%sq%s to quit, ' "$CYAN" "$GREY"
+  [[ "$menu_items" == *r* ]] && printf '%sr%sun, ' "$CYAN" "$GREY"
+  [[ "$menu_items" == *e* ]] && printf '%se%sdit, ' "$CYAN" "$GREY"
+  [[ "$menu_items" == *q* ]] && printf '%sq%suit, ' "$CYAN" "$GREY"
   printf '%sor continue chat... )%s\n' "$GREY" "$RESET"
   printf "\033[u" # restore cursor position
 }
@@ -550,16 +551,16 @@ continuous_conversation() {
         printf '\n - %s%s%s\n\n' "$GREY" "$shell_command_explanation" "$RESET"
         printf '\033[2K'
         printf '%scmd:%s>%s\n' "$GREY" "$GREEN" "$RESET"
-        printf '%s\n\033[2K\n' "$shell_command"
-        show_conversation_menu "yeq"
+        printf '%s%s%s\n\033[2K\n' "$YELLOW" "$shell_command" "$RESET"
+        show_conversation_menu "req"
         ;;
       "cmd_edited")
         printf '\033[2A\033[2K'
         printf '%supdated cmd:%s>%s\n' "$GREY" "$GREEN" "$RESET"
         printf '\033[2K'
-        printf '%s\n' "$shell_command"
+        printf '%s%s%s\n' "$YELLOW" "$shell_command" "$RESET"
         printf '\033[2K\n'
-        show_conversation_menu "yeq"
+        show_conversation_menu "req"
         ;;
       "cmd_executed")
         show_conversation_menu "eq"
@@ -591,7 +592,7 @@ continuous_conversation() {
       break  # Exit on read error (e.g., Ctrl-D)
     fi
     case "${last_action_type}:${user_input}" in
-      cmd_new_response:[Yy]|cmd_edited:[Yy])
+      cmd_new_response:[Rr]|cmd_edited:[Rr])
         printf '\033[2K\n'
         echo "$shell_command" >> ~/.bash_history
         eval "$shell_command"
