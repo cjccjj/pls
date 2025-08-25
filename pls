@@ -12,7 +12,6 @@ readonly GREEN_PROMPT=$'\001'"${GREEN}"$'\002'
 readonly RESET_PROMPT=$'\001'"${RESET}"$'\002'
 
 readonly SPINNER_DELAY=0.2
-# readonly SPINNER_FRAMES=(⣷ ⣯ ⣟ ⡿ ⢿ ⣻ ⣽ ⣾)
 readonly SPINNER_FRAMES=(⠷ ⠯ ⠟ ⠻ ⠽ ⠾)
 
 # Global variables
@@ -22,12 +21,11 @@ show_piped_input=false
 last_action_type="empty_user_prompt"
 task=""
 input=""
-was_truncated=0
+was_input_truncated="false"
 shell_command_requested=""
 shell_command_explanation=""
 shell_command=""
 chat_response=""
-spinner_note=""
 user_prompt=""
 
 load_and_apply_config() {
@@ -44,7 +42,7 @@ openai_1_key="OPENAI_API_KEY"
 
 # Other settings
 timeout_seconds=60
-max_input_length=64000
+max_input_length=64000 # in chars, to avoid too long input from pipe
 history_file="$HOME/.config/pls/pls.log"
 history_time_window_minutes=30
 history_max_records=30
@@ -116,17 +114,11 @@ apply_profile() {
   fi
 
   # System instruction
-  shell_type="Linux"
-  if [[ $(uname) == "Darwin" ]]; then 
-    shell_type="macOS (Bash 3 with BSD utilities)"
-  elif [[ $(uname) == "Linux" ]]; then
-    shell_type="Linux"
-  elif [[ $(uname) == "FreeBSD" ]]; then
-    shell_type="FreeBSD"
-  else
-    echo "Unsupported OS: $(uname)" >&2
-    exit 1
-  fi
+  case $(uname) in
+    Darwin)  shell_type="macOS (Bash 3 with BSD utilities)" ;;
+    FreeBSD) shell_type="FreeBSD" ;;
+    *)       shell_type="Linux" ;;
+  esac
 
   SYSTEM_INSTRUCTION="
 If user requests to run a shell command, provide a very brief plain-text explanation as shell_command_explanation and generate a valid shell command for ${shell_type} to fullfill user request. If the command is risky like deletes data, shuts down system, kills critical services, cuts network then make sure to prefix it with '# ' to prevent execution. Prefer a single command; always use '&&' to join commands, and use \ for line continuation on long commands. Use sudo if likely required. If no shell command requested, answer concisely and directly as chat_response, prefer under 80 words, use Markdown if it helps. If asked for a fact or result, answer with only the exact value or fact in plain text. Do not include extra words, explanations, or complete sentences.
@@ -140,9 +132,7 @@ Make sure to adapt these shell_commands in special cases for ${shell_type}.
 "
 }
 
-# ======================
-# FUNCTION DEFINITIONS
-# ======================
+# APP FUNCTION DEFINITIONS
 print_usage_and_exit() {
   cat >&2 << EOF
 pls v0.51
@@ -182,27 +172,26 @@ cleanup() {
 
 start_spinner() {
   (
-    tput civis >&2
-    printf '\n\n\n\n\n\033[5A' >&2
-    printf '\r\033[K\r_ %s %s(%s)%s:' "$GREY" "$api_model" "$spinner_note" "$RESET" >&2
-    while :; do 
+    tput civis; tput sc
+    printf '\n\n\n\n\n'; tput rc; tput el
+    printf '_%s %s%s:' "$GREY" "$api_model" "$RESET"
+    while :; do
       for frame in "${SPINNER_FRAMES[@]}"; do
-        printf '\r%s%s%s' "$GREEN" "$frame" "$RESET" >&2
+        printf '\r%s%s%s' "$GREEN" "$frame" "$RESET"
         sleep "$SPINNER_DELAY"
       done
     done
-  ) & 
+  ) >&2 &
   spinner_pid=$!
 }
 
 stop_spinner() {
-  (( spinner_pid )) || return
+  (( $spinner_pid )) || return
   kill "$spinner_pid" 2>/dev/null
   wait "$spinner_pid" 2>/dev/null
   spinner_pid=0
-  printf '\r\033[2K' >&2
-  tput cnorm >&2
-}
+  printf '\r'; tput el; tput cnorm
+} >&2
 
 add_to_history() {
   local user_message="$1"
@@ -229,37 +218,31 @@ read_from_history() {
   
   case $api_provider in
   openai)
-  jq -s \
+  tail -n $((history_max_records * 5)) "$history_file" \
+   | jq -s \
     --argjson cutoff_epoch "$cutoff_epoch" \
-    --argjson max "$history_max_records" \
-    '
-      map(select((.timestamp | strptime("%Y-%m-%d %H:%M:%S") | mktime) >= $cutoff_epoch))
-      | if length > $max then .[-$max:] else . end
-      | map({role, content})
-    ' "$history_file"
+    'map(select((.timestamp | strptime("%Y-%m-%d %H:%M:%S") | mktime) >= $cutoff_epoch))
+      | map({role, content})'
   ;;
   gemini)
-  jq -s \
+  tail -n $((history_max_records * 5)) "$history_file" \
+   | jq -s \
     --argjson cutoff_epoch "$cutoff_epoch" \
-    --argjson max "$history_max_records" \
-    '
-      map(select((.timestamp | strptime("%Y-%m-%d %H:%M:%S") | mktime) >= $cutoff_epoch))
-      | if length > $max then .[-$max:] else . end
+    'map(select((.timestamp | strptime("%Y-%m-%d %H:%M:%S") | mktime) >= $cutoff_epoch))
       | map({
           "role": (if .role == "assistant" then "model" else "user" end),
           "parts": [{"text": .content}]
-        })
-    ' "$history_file"
+        })' 
   ;;
   *) printf 'Unsupported API provider: %s\n' "$api_provider" >&2; exit 1 ;;
   esac
 }
 
 show_piped_input() {
-  printf '%s>%s\n' "$GREY" "$RESET" >&2
-  (( ${#piped_input} > 1500 )) &&
-    printf '%s%s%s\n' "$GREY" "${piped_input:0:1500} #display truncated..." "$RESET" ||
-    printf '%s%s%s\n' "$GREY" "$piped_input" "$RESET"
+  printf '>\n' >&2
+  printf '%s%s%s\n' "$GREY" "${piped_input:0:250}" "$RESET" >&2
+  (( ${#piped_input} > 250 )) &&
+    printf '...\n' >&2
 }
 
 process_inputs() {
@@ -279,7 +262,7 @@ process_inputs() {
     piped_input=$(tr -d '\000-\010\013\014\016-\037\177' <<< "$piped_input")  
     if ((${#piped_input} > max_input_length)); then
     piped_input="${piped_input:0:max_input_length}"
-    was_truncated=1
+    was_input_truncated="true"
     fi
     [[ "$show_piped_input" == "true" ]] && show_piped_input    
   fi
@@ -299,9 +282,6 @@ build_prompt() {
     user_prompt="$arg_input"
   fi
   last_action_type="new_user_prompt"
-  total_chars=${#user_prompt}
-  spinner_note="input $total_chars"
-  [[ $was_truncated -eq 1 ]] && spinner_note="$spinner_note truncated"
 }
 
 call_gemini_api() {
@@ -525,13 +505,16 @@ show_conversation_menu() {
     printf 'Invalid menu items: %s\n' "$menu_items" >&2
     exit 1
   fi
-  printf "\033[s" # save cursor position
+  tput sc # save cursor position
   printf '\n%s( %s' "$GREY" "$RESET"
   [[ "$menu_items" == *r* ]] && printf '%sr%sun, ' "$CYAN" "$GREY"
   [[ "$menu_items" == *e* ]] && printf '%se%sdit, ' "$CYAN" "$GREY"
   [[ "$menu_items" == *q* ]] && printf '%sq%suit, ' "$CYAN" "$GREY"
   printf '%sor continue chat... )%s\n' "$GREY" "$RESET"
-  printf "\033[u" # restore cursor position
+  if [[ "$was_truncated" == "true" ]]; then
+    echo "Note: this response is generated on a truncated input" >&2
+  fi
+  tput rc # restore cursor position
 }
 
 continuous_conversation() {
@@ -549,17 +532,19 @@ continuous_conversation() {
       "cmd_new_response")
         add_to_history "$user_prompt" "suggested shell cmd:\"$shell_command\""
         printf '\n - %s%s%s\n\n' "$GREY" "$shell_command_explanation" "$RESET"
-        printf '\033[2K'
+        tput el
         printf '%scmd:%s>%s\n' "$GREY" "$GREEN" "$RESET"
-        printf '%s%s%s\n\033[2K\n' "$YELLOW" "$shell_command" "$RESET"
+        printf '%s%s%s\n' "$YELLOW" "$shell_command" "$RESET"
+        tput el
         show_conversation_menu "req"
         ;;
       "cmd_edited")
-        printf '\033[2A\033[2K'
+        tput cuu 2
+        tput el
         printf '%supdated cmd:%s>%s\n' "$GREY" "$GREEN" "$RESET"
-        printf '\033[2K'
+        tput el
         printf '%s%s%s\n' "$YELLOW" "$shell_command" "$RESET"
-        printf '\033[2K\n'
+        tput el
         show_conversation_menu "req"
         ;;
       "cmd_executed")
@@ -593,7 +578,6 @@ continuous_conversation() {
     fi
     case "${last_action_type}:${user_input}" in
       cmd_new_response:[Rr]|cmd_edited:[Rr])
-        printf '\033[2K\n'
         echo "$shell_command" >> ~/.bash_history
         eval "$shell_command"
         if [ $? -eq 0 ]; then
@@ -606,14 +590,14 @@ continuous_conversation() {
         last_action_type="cmd_executed"
         ;;
       cmd_new_response:[Ee]|cmd_edited:[Ee]|cmd_executed:[Ee])
-        printf '\033[1A\033[2K'
+        tput cuu1 && tput el
         printf '%sedit:%s>%s\n' "$GREY" "$GREEN" "$RESET"
-        printf '\033[2K'
-        
-        printf "\033[s" # save cursor position
+        tput el
+
+        tput sc # save cursor position
         printf '\n'
         printf '%s( %s⏎%s to finish edit)%s\n' "$GREY" "$CYAN" "$GREY" "$RESET"
-        printf "\033[u" # restore cursor position
+        tput rc # restore cursor position
 
         single_line_shell_command=$(echo "$shell_command" | sed 's/\\$//' | tr -d '\n')
         if [[ "$(uname)" == "Darwin" ]]; then
@@ -633,20 +617,17 @@ continuous_conversation() {
           read -e -r -p "${GREEN_PROMPT}>>${RESET_PROMPT}" -i "$single_line_shell_command" shell_command </dev/tty
         fi
         if [[ -z "$shell_command" ]]; then
-          printf '\033[2K\n\033[2K'
-          printf '%sbye%s\n' "$GREY" "$RESET"
-          break
-        else 
-          last_action_type="cmd_edited"
+          shell_command="$single_line_shell_command"
         fi
+        last_action_type="cmd_edited" 
         ;;
       cmd_new_response:[Qq]|cmd_edited:[Qq]|cmd_executed:[Qq]|chat_new_response:[Qq])
-        printf '\033[2K\n'
+        tput el
         printf '%sbye%s\n' "$GREY" "$RESET"
         break
         ;;
       cmd_new_response:|cmd_edited:|cmd_executed:|chat_new_response:)
-        printf '\033[2K\n'
+        tput el
         printf '%sbye%s\n' "$GREY" "$RESET"
         break
         ;;
@@ -661,7 +642,7 @@ continuous_conversation() {
     if [[ "$last_action_type" == "new_user_prompt" ]]; then
       arg_input="$user_input"
       piped_input=""
-      was_truncated=0
+      was_input_truncated="false"
       build_prompt
       call_api
     fi
@@ -675,6 +656,9 @@ single_time_output() {
       printf '%s\n' "$shell_command"
     else
       printf '%s\n' "$chat_response"
+    fi
+    if [[ "$was_truncated" == "true" ]]; then
+      echo "Note: this response is generated on a truncated input" >&2
     fi
   else
     exit 1
