@@ -26,15 +26,14 @@ shell_command=""
 chat_response=""
 user_prompt=""
 
-SYSTEM_INSTRUCTION=$(cat <<'EOF'
+BASE_SYSTEM_INSTRUCTION=$(cat <<'EOF'
 If user requests to run a shell command, or the request needs shell commands to fulfill, then provide a very brief plain-text explanation as shell_command_explanation and generate a valid shell command for __SHELL_TYPE__ . If the command is risky like deletes data, shuts down system, kills critical services, cuts network then make sure to prefix it with '# ' to prevent execution; Prefer a single command; Always use '&&' to join commands, and use \ for line continuation on long commands; Use sudo if likely required. 
 If use only enquires about a shell command or user request is not about shell command, then answer concisely and directly as chat_response, prefer under 80 words, use Markdown if it helps. If asked for a fact or result, answer with only the exact value or fact in plain text. Do not include extra words, explanations, or complete sentences.
 Special cases that you also treat as requesting to run a shell command, make sure to adapt for __SHELL_TYPE__: 
 If user requests 'delete all chat history', provide the shell_command as 'rm -f ~/.config/pls/pls.log && echo "chat history deleted" #pls' , and shell_command_explanation as 'pls: delete all chat history'.
 If user requests 'edit config' or 'edit config file of pls' or 'change profile' or 'change settings', provide the shell_command as 'nano ~/.config/pls/pls.conf && load_and_apply_config #pls' , or use vi, and shell_command_explanation as 'pls: edit config file to change profile or settings'.
 If user requests 'update yourself', provide the shell_command as 'curl -sSL https://raw.githubusercontent.com/cjccjj/pls/main/install.sh | bash' , and shell_command_explanation as 'pls: download and install to update, then restart pls'.
-__USER_SYSTEM_INSTRUCTION__ 
-.
+__USER_SYSTEM_INSTRUCTION__
 EOF
 )
 
@@ -42,11 +41,10 @@ load_and_apply_config() {
 # Create config file with default settings if not exist
   if [[ ! -f "$CONFIG_FILE" ]]; then
     mkdir -p "$(dirname "$CONFIG_FILE")" && cat > "$CONFIG_FILE" <<'EOF'
-[Global] 
+[Global]
 profile="openai_1"
-USER_SYSTEM_INSTRUCTION=""
-# Experimental. Teach AI how to use your personalized shell command by adding this user-defined instruction. See example below: 
-# USER_SYSTEM_INSTRUCTION="If user requests 'thank me' or 'say thanks' , provide the shell_command as echo \"thank you very much\" , shell_command_explanation as 'show thanks' ."
+# Experimental. Teach AI to use your personalized shell command. Use the template below and uncomment to enable:
+# USER_SYSTEM_INSTRUCTION="If user requests 'say thank you to <username>' , provide the shell_command as echo \"<username>, thank you very much\" , shell_command_explanation as 'show thanks' ."
 
 timeout_seconds=60
 max_input_length=64000
@@ -86,35 +84,31 @@ EOF
   # No associative arrays for compatible with macOS’s system Bash
   local section=""
   while IFS= read -r line || [[ -n "$line" ]]; do
-      # Strip comments
-      line="${line%%#*}"
-      line="$(echo "$line" | xargs)"   # trim spaces
-      [[ -z "$line" ]] && continue
+    [[ -z "$line" ]] && continue
+    # Section headers
+    if [[ "$line" =~ ^\[(.+)\][[:space:]]*$ ]]; then
+      section="${BASH_REMATCH[1]}"
+      continue
+    fi
 
-      # Section headers
-      if [[ "$line" =~ ^\[(.+)\]$ ]]; then
-          section="${BASH_REMATCH[1]}"
-          continue
+    # Key=Value
+    if [[ "$line" =~ ^([A-Za-z0-9_]+)[[:space:]]*=[[:space:]]*(.*)$ ]]; then
+      local key="${BASH_REMATCH[1]}"
+      local val="${BASH_REMATCH[2]}"
+
+      # Strip quotes
+      if [[ "$val" =~ ^\"(.*)\"$ ]]; then
+        val="${BASH_REMATCH[1]}"
+      elif [[ "$val" =~ ^\'(.*)\'$ ]]; then
+        val="${BASH_REMATCH[1]}"
       fi
 
-      # Key=Value
-      if [[ "$line" =~ ^([A-Za-z0-9_]+)=(.*)$ ]]; then
-          local key="${BASH_REMATCH[1]}"
-          local val="${BASH_REMATCH[2]}"
-
-          # Strip quotes
-          if [[ "$val" =~ ^\"(.*)\"$ ]]; then
-              val="${BASH_REMATCH[1]}"
-          elif [[ "$val" =~ ^\'(.*)\'$ ]]; then
-              val="${BASH_REMATCH[1]}"
-          fi
-
-          if [[ "$section" == "Global" ]]; then
-              eval "$key=\"\$val\""
-          else
-              eval "profile__${section}__${key}=\"\$val\""
-          fi
+      if [[ "$section" == "Global" ]]; then
+        eval "$key=\"\$val\""
+      else
+         eval "profile__${section}__${key}=\"\$val\""
       fi
+    fi
   done < "$CONFIG_FILE"
 
   # Expand $HOME inside history_file etc
@@ -147,15 +141,18 @@ apply_profile() {
     FreeBSD) shell_type="FreeBSD" ;;
     *)       shell_type="Linux" ;;
   esac
-  
-  SYSTEM_INSTRUCTION=${SYSTEM_INSTRUCTION//__SHELL_TYPE__/$shell_type}
+
+  USER_SYSTEM_INSTRUCTION=${USER_SYSTEM_INSTRUCTION//\\\"/\"}
+
+  SYSTEM_INSTRUCTION=${BASE_SYSTEM_INSTRUCTION//__SHELL_TYPE__/$shell_type}
   SYSTEM_INSTRUCTION=${SYSTEM_INSTRUCTION//__USER_SYSTEM_INSTRUCTION__/$USER_SYSTEM_INSTRUCTION}
+  echo "$SYSTEM_INSTRUCTION"
 }
 
 # APP FUNCTION DEFINITIONS
 print_usage_and_exit() {
   cat >&2 << EOF
-pls v0.53
+pls v0.54
 
 Usage:    pls [messages...]                       # Chat with an input
           > what is llm                           # Continue chat, q or empty input to quit
