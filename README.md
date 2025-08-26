@@ -1,12 +1,16 @@
 ## pls - cli AI helper
-- a command-line helper that talks to AI, and generate shell commands that await your confirm to run
-- support both Openai and Gemini
-- structured output to ensure you can chat and get clean shell commands at the same time 
-- maintains a short term conversation history
-- support input from pipes, and command chaining
-- allow inline shell command regeneration and editing
-- polite, minimal, and easy to use
-- (experimental) change local config by talking, e.g. "edit config", "delete all chat history"
+- A command-line helper that talks to AI and generates shell commands, which await your confirmation before running.
+- pls is not a coding tool, but a quick and convenient helper you can use anytime without leaving the command line.
+
+## To stay quick and responsive, pls:
+- Avoids back-and-forth: generates both the chat message and clean shell commands in a single request.
+- Maintains short-term conversation history, no need to manage sessions.
+- Uses a short system instruction, customizable by the user, with no tool calling.
+- Supports inline shell command regeneration and editing.
+- Accepts input from pipes and allows command chaining.
+- Is polite, minimal, and easy to use.
+- (Experimental) Can be configured by conversation, e.g. “update yourself,” “edit config,” “delete chat history.”
+- Supports both the OpenAI API and Gemini API.
 
 ## Usage
 ```
