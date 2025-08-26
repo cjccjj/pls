@@ -44,6 +44,7 @@ request regeneration, or manually edit
 
 
 ## Installation
+- Linux or macOS, need an Openai or Gemini API key
 - install jq if not installed already
 - install glow (optional for Markdown color rendering)
 - run the follow script to install or update
