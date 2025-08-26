@@ -219,10 +219,10 @@ add_to_history() {
   mkdir -p "/tmp/$USER"
   touch "$history_file"
 
-  jq -n --arg role "user" --arg content "$user_message" \
+  jq -nc --arg role "user" --arg content "$user_message" \
     --arg time "$timestamp" \
     '{timestamp: $time, role: $role, content: $content}' >> "$history_file"
-  jq -n --arg role "assistant" --arg content "$assistant_message" \
+  jq -nc --arg role "assistant" --arg content "$assistant_message" \
     --arg time "$timestamp" \
     '{timestamp: $time, role: $role, content: $content}' >> "$history_file"
 }
@@ -235,14 +235,14 @@ read_from_history() {
   # use tail to avoid loading big history file
   case $api_provider in
   openai)
-  tail -n $((history_max_records * 5)) "$history_file" \
+  tail -n $((history_max_records)) "$history_file" \
    | jq -s \
     --argjson cutoff_epoch "$cutoff_epoch" \
     'map(select((.timestamp | strptime("%Y-%m-%d %H:%M:%S") | mktime) >= $cutoff_epoch))
       | map({role, content})'
   ;;
   gemini)
-  tail -n $((history_max_records * 5)) "$history_file" \
+  tail -n $((history_max_records)) "$history_file" \
    | jq -s \
     --argjson cutoff_epoch "$cutoff_epoch" \
     'map(select((.timestamp | strptime("%Y-%m-%d %H:%M:%S") | mktime) >= $cutoff_epoch))
