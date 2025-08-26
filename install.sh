@@ -2,7 +2,7 @@
 set -e
 
 echo "This will install/update 'pls' to /usr/local/bin (requires sudo)."
-read -p "Continue? [y/N] " a
+read -r -p "Continue? [y/N] " a
 [[ "$a" != [yY] ]] && echo "Aborted." && exit 1
 
 # Backup existing config if present
