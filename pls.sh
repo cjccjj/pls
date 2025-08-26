@@ -26,6 +26,18 @@ shell_command=""
 chat_response=""
 user_prompt=""
 
+SYSTEM_INSTRUCTION=$(cat <<'EOF'
+If user requests to run a shell command, or the request needs shell commands to fulfill, then provide a very brief plain-text explanation as shell_command_explanation and generate a valid shell command for __SHELL_TYPE__ . If the command is risky like deletes data, shuts down system, kills critical services, cuts network then make sure to prefix it with '# ' to prevent execution; Prefer a single command; Always use '&&' to join commands, and use \ for line continuation on long commands; Use sudo if likely required. 
+If use only enquires about a shell command or user request is not about shell command, then answer concisely and directly as chat_response, prefer under 80 words, use Markdown if it helps. If asked for a fact or result, answer with only the exact value or fact in plain text. Do not include extra words, explanations, or complete sentences.
+Special cases that you also treat as requesting to run a shell command, make sure to adapt for __SHELL_TYPE__: 
+If user requests 'delete all chat history', provide the shell_command as 'rm -f ~/.config/pls/pls.log && echo "chat history deleted" #pls' , and shell_command_explanation as 'pls: delete all chat history'.
+If user requests 'edit config' or 'edit config file of pls' or 'change profile' or 'change settings', provide the shell_command as 'nano ~/.config/pls/pls.conf && load_and_apply_config #pls' , or use vi, and shell_command_explanation as 'pls: edit config file to change profile or settings'.
+If user requests 'update yourself', provide the shell_command as 'curl -sSL https://raw.githubusercontent.com/cjccjj/pls/main/install.sh | bash' , and shell_command_explanation as 'pls: download and install to update, then restart pls'.
+__USER_SYSTEM_INSTRUCTION__ 
+.
+EOF
+)
+
 load_and_apply_config() {
 # Create config file with default settings if not exist
   if [[ ! -f "$CONFIG_FILE" ]]; then
@@ -33,7 +45,8 @@ load_and_apply_config() {
 [Global] 
 profile="openai_1"
 USER_SYSTEM_INSTRUCTION=""
-# USER_SYSTEM_INSTRUCTION="If user requests ... , provide the shell_command as echo \"thank you\"... , shell_command_explanation as ... ."
+# Experimental. Teach AI how to use your personalized shell command by adding this user-defined instruction. See example below: 
+# USER_SYSTEM_INSTRUCTION="If user requests 'thank me' or 'say thanks' , provide the shell_command as echo \"thank you very much\" , shell_command_explanation as 'show thanks' ."
 
 timeout_seconds=60
 max_input_length=64000
@@ -134,17 +147,9 @@ apply_profile() {
     FreeBSD) shell_type="FreeBSD" ;;
     *)       shell_type="Linux" ;;
   esac
-
-  SYSTEM_INSTRUCTION="
-If user requests to run a shell command, provide a very brief plain-text explanation as shell_command_explanation and generate a valid shell command for ${shell_type} to fullfill user request. If the command is risky like deletes data, shuts down system, kills critical services, cuts network then make sure to prefix it with '# ' to prevent execution. Prefer a single command; always use '&&' to join commands, and use \ for line continuation on long commands. Use sudo if likely required. If no shell command requested, answer concisely and directly as chat_response, prefer under 80 words, use Markdown if it helps. If asked for a fact or result, answer with only the exact value or fact in plain text. Do not include extra words, explanations, or complete sentences.
-Special cases that you also treat as requesting to run a shell command: 
-If user requests 'show active profile or show current model', provide the shell_command as echo \"active profile: \${active} using \${api_model\} #pls\" , and shell_command_explanation as 'pls: show current active profile name and model in use'.
-If user requests 'change active profile to \"profile_name\"', provide the shell_command as active=\"profile_name\" && apply_profile #pls, make sure \"profile_name\" in quotes, and shell_command_explanation as 'pls: change to \"profile_name\" for this session, to edit profiles and keep changes say \"edit config\"'.
-If user requests 'delete all chat history', provide the shell_command as rm -f ~/.config/pls/pls.log && echo \"chat history deleted\" #pls , and shell_command_explanation as 'pls: delete all chat history'.
-If user requests 'edit config' or 'edit config file of pls', provide the shell_command as nano ~/.config/pls/pls.conf && load_and_apply_config #pls , or use vi, and shell_command_explanation as 'pls: edit config file to change profile or settings'.
-${USER_SYSTEM_INSTRUCTION}
-Make sure to adapt these shell_commands in special cases for ${shell_type}.
-"
+  
+  SYSTEM_INSTRUCTION=${SYSTEM_INSTRUCTION//__SHELL_TYPE__/$shell_type}
+  SYSTEM_INSTRUCTION=${SYSTEM_INSTRUCTION//__USER_SYSTEM_INSTRUCTION__/$USER_SYSTEM_INSTRUCTION}
 }
 
 # APP FUNCTION DEFINITIONS
@@ -301,220 +306,154 @@ build_prompt() {
   last_action_type="new_user_prompt"
 }
 
-call_gemini_api() {
-  # Define the JSON schema for the structured output.
-  local json_schema_payload
-  json_schema_payload=$(jq -n '{
-    "type": "OBJECT",
-    "properties": {
-      "shell_command_requested": {
-        "type": "BOOLEAN",
-        "description": "Whether the user requested or implied needing a shell command."
-      },
-      "shell_command_explanation": {
-        "type": "STRING",
-        "description": "A very brief explanation of the shell command."
-      },
-      "shell_command": {
-        "type": "STRING",
-        "description": "The shell command to accomplish the task, if applicable."
-      },
-      "chat_response": {
-        "type": "STRING",
-        "description": "A clear and helpful general answer to the user request, if not about shell command"
-      }
-    },
-    "required": ["shell_command_requested", "shell_command_explanation", "shell_command", "chat_response"]
-  }')
+call_api() {
+  local payload endpoint headers
 
-  # to enforce the structured output.
-  local json_payload
-  json_payload=$(
-    read_from_history \
-    | jq -n \
-    --arg prompt "$user_prompt" \
-    --arg sys "$SYSTEM_INSTRUCTION" \
-    --slurpfile history /dev/stdin \
-    --argjson schema "$json_schema_payload" \
-  '{
-    "system_instruction": {
-      "parts": [
-        { "text": $sys }
-      ]
-    },
-    "contents": ($history[0] + [
-      {
-        "role": "user",
-        "parts": [
-          { "text": $prompt }
-        ]
-      }
-    ]),
-    "generationConfig": {
-      "responseMimeType": "application/json",
-      "responseSchema": $schema
-    }
-  }')
-
-  stderr_file=$(mktemp)
-  start_spinner  # Make the API call using curl.
-  local response
-  response=$(curl -s -X POST -w "\n%{http_code}" --max-time "$timeout_seconds" \
-    -H "Content-Type: application/json" \
-    -d "${json_payload}" \
-    "${api_base_url}/models/${api_model}:generateContent?key=${api_key}" 2>"$stderr_file")
-
-  stop_spinner
-  # Check for API errors and provide descriptive output.
-  curl_stderr=$(<"$stderr_file")
-  if echo "$response" | grep -q '"error"'; then
-    echo "API Error:" >&2
-    echo "$response" | jq . >&2
-    echo "$curl_stderr" >&2
-    return 1
-  fi
-
-  local http_code
-  http_code=${response##*$'\n'}
-  local http_body
-  http_body=${response%$'\n'*}
-  local curl_stderr
-  curl_stderr=$(<"$stderr_file")
-
-  if (( http_code != 200 )); then
-    printf 'Request failed (%s):\n' "$http_code" >&2
-    [[ -n "$http_body" ]] && printf '%s\n' "$http_body" >&2 || printf '%s\n' "$curl_stderr" >&2
-    exit 1
-  else
-    api_out_status=$(jq -r '.candidates[0]? | .finishReason // empty' <<<"$http_body")
-    if [[ "$api_out_status" != "STOP" ]]; then
-        printf 'Response failed (%s)\n' "$api_out_status" >&2
-        [[ -n "$http_body" ]] && printf '%s\n' "$http_body" >&2
-        exit 1
-    fi
-  fi
-
-  # parse response
-  local message_text
-  message_text=$(jq '.candidates[0].content.parts[0].text' <<<"$http_body")
-
-  shell_command_requested=$(jq -r 'fromjson | .shell_command_requested' <<< "$message_text")
-  shell_command_explanation=$(jq -r 'fromjson | .shell_command_explanation' <<< "$message_text")
-  shell_command=$(jq -r 'fromjson | .shell_command' <<< "$message_text")
-  chat_response=$(jq -r 'fromjson | .chat_response' <<< "$message_text")
-  
-  last_action_type="new_assistant_response"
-}
-
-# prepare request, send to API and parse response
-call_openai_api() {
-  # see  https://platform.openai.com/docs/guides/structured-outputs
-  local output_format
-  output_format=$(jq -n '{
-    type: "json_schema",
-    name: "shell_helper",
-    schema: {
-        type: "object",
-        properties: {
-            shell_command_requested: {
-                type: "boolean",
-                description: "Whether the user requested or implied needing a shell command."
+  # ---------------- Provider differences -----------------
+  case $api_provider in
+    openai)
+      endpoint="$api_base_url/responses"
+      headers=(-H "Authorization: Bearer $api_key" -H "Content-Type: application/json")
+      # Structured output format for OpenAI
+      local output_format
+      output_format=$(jq -n '{
+        type: "json_schema",
+        name: "shell_helper",
+        schema: {
+            type: "object",
+            properties: {
+                shell_command_requested: {
+                    type: "boolean",
+                    description: "Whether the user requested or implied needing a shell command."
+                },
+                shell_command_explanation: {
+                    type: "string",
+                    description: "A very brief explanation of the shell command."
+                },
+                shell_command: {
+                    type: "string",
+                    description: "The shell command to accomplish the task, if applicable."
+                },
+                chat_response: {
+                    type: "string",
+                    description: "A clear and helpful general answer to the user request, if not about shell command"
+                }
             },
-            shell_command_explanation: {
-                type: "string",
-                description: "A very brief explanation of the shell command."
-            },
-            shell_command: {
-                type: "string",
-                description: "The shell command to accomplish the task, if applicable."
-            },
-            chat_response: {
-                type: "string",
-                description: "A clear and helpful general answer to the user request, if not about shell command"
-            }
+            required: ["shell_command_requested","shell_command","shell_command_explanation","chat_response"],
+            additionalProperties: false
         },
-        required: ["shell_command_requested","shell_command","shell_command_explanation","chat_response"],
-        additionalProperties: false
-    },
-    strict: true
-    }')
+        strict: true
+        }')
 
-  local json_payload
-  json_payload=$(
-    read_from_history \
-    | jq -n \
-    --arg model "$api_model" \
-    --arg sys "$SYSTEM_INSTRUCTION" \
-    --slurpfile history /dev/stdin \
-    --arg prompt "$user_prompt" \
-    --argjson output_format "$output_format" \
-    '{
-        model: $model,
-        input: (
-        [{role: "developer", content: $sys}] + 
-        $history[0] + 
-        [{role: "user", content: $prompt}]),
-        text: {
-            format: $output_format
-        }
-    }')
+      payload=$(
+        read_from_history | jq -n \
+          --arg model "$api_model" \
+          --arg sys "$SYSTEM_INSTRUCTION" \
+          --slurpfile history /dev/stdin \
+          --arg prompt "$user_prompt" \
+          --argjson output_format "$output_format" \
+        '{
+          model:$model,
+          input:(
+            [{role:"developer",content:$sys}] +
+            $history[0] +
+            [{role:"user",content:$prompt}]
+          ),
+          text:{format:$output_format}
+        }')
+      ;;
+
+    gemini)
+      endpoint="${api_base_url}/models/${api_model}:generateContent?key=${api_key}"
+      headers=(-H "Content-Type: application/json")
+      # Schema definition for Gemini
+      local schema
+      schema=$(jq -n '{
+        "type": "OBJECT",
+        "properties": {
+          "shell_command_requested": {
+            "type": "BOOLEAN",
+            "description": "Whether the user requested or implied needing a shell command."
+          },
+          "shell_command_explanation": {
+            "type": "STRING",
+            "description": "A very brief explanation of the shell command."
+          },
+          "shell_command": {
+            "type": "STRING",
+            "description": "The shell command to accomplish the task, if applicable."
+          },
+          "chat_response": {
+            "type": "STRING",
+            "description": "A clear and helpful general answer to the user request, if not about shell command"
+          }
+        },
+        "required": ["shell_command_requested", "shell_command_explanation", "shell_command", "chat_response"]
+      }')
+      payload=$(
+        read_from_history | jq -n \
+          --arg prompt "$user_prompt" \
+          --arg sys "$SYSTEM_INSTRUCTION" \
+          --slurpfile history /dev/stdin \
+          --argjson schema "$schema" \
+        '{
+          system_instruction:{parts:[{text:$sys}]},
+          contents:($history[0] + [{role:"user",parts:[{text:$prompt}]}]),
+          generationConfig:{responseMimeType:"application/json",responseSchema:$schema}
+        }')
+      ;;
+
+    *) echo "Unsupported provider: $api_provider" >&2; exit 1 ;;
+  esac
+
+  # ---------------- Shared: do the request -----------------
   stderr_file=$(mktemp)
   start_spinner
   local response
-  response=$(curl -s -X POST -w "\n%{http_code}" --max-time "$timeout_seconds" "$api_base_url/responses" \
-    -H "Authorization: Bearer $api_key" \
-    -H "Content-Type: application/json" \
-    -d "$json_payload" 2>"$stderr_file")
+  response=$(curl -s -X POST -w "\n%{http_code}" --max-time "$timeout_seconds" \
+                   "${headers[@]}" -d "$payload" "$endpoint" 2>"$stderr_file")
   stop_spinner
 
-  local http_code
-  http_code=${response##*$'\n'}
-  local http_body
-  http_body=${response%$'\n'*}
+  local http_code=${response##*$'\n'}
+  local http_body=${response%$'\n'*}
   local curl_stderr
   curl_stderr=$(<"$stderr_file")
 
-  if (( http_code != 200 )); then
-    printf 'Request failed (%s):\n' "$http_code" >&2
-    [[ -n "$http_body" ]] && printf '%s\n' "$http_body" >&2 || printf '%s\n' "$curl_stderr" >&2
-    exit 1
-  else 
-    local api_out_status
-    api_out_status=$(jq -r '.output[]? | select(.type=="message") | .status // empty' <<<"$http_body")
-    if [[ "$api_out_status" != "completed" ]]; then
-        printf 'Response failed (%s)\n' "$api_out_status" >&2
-        exit 1
-    fi
-  fi
-  
-  # parse response
-  local message_text
-  message_text=$(jq '
-    .output[]
-    | select(.type=="message")
-    | .content[]
-    | select(.type=="output_text")
-    | .text
-  ' <<<"$http_body")
+  (( http_code == 200 )) || { echo "Request failed ($http_code)"; echo "$http_body" || echo "$curl_stderr"; exit 1; }
 
-  shell_command_requested=$(jq -r 'fromjson | .shell_command_requested' <<< "$message_text")
-  shell_command_explanation=$(jq -r 'fromjson | .shell_command_explanation' <<< "$message_text")
-  shell_command=$(jq -r 'fromjson | .shell_command' <<< "$message_text")
-  chat_response=$(jq -r 'fromjson | .chat_response' <<< "$message_text")
+  # ---------------- Provider-specific parse -----------------
+  case $api_provider in
+    openai)
+      local status
+      status=$(jq -r '.output[]? | select(.type=="message") | .status // empty' <<<"$http_body")
+      [[ $status == completed ]] || { echo "OpenAI response failed ($status)"; echo "$http_body"; exit 1; }
+      local msg
+      msg=$(jq '
+        .output[]?|select(.type=="message")|.content[]?|select(.type=="output_text")|.text
+      ' <<<"$http_body")
+      shell_command_requested=$(jq -r 'fromjson.shell_command_requested' <<<"$msg")
+      shell_command_explanation=$(jq -r 'fromjson.shell_command_explanation' <<<"$msg")
+      shell_command=$(jq -r 'fromjson.shell_command' <<<"$msg")
+      chat_response=$(jq -r 'fromjson.chat_response' <<<"$msg")
+      ;;
+
+    gemini)
+      local status 
+      status=$(jq -r '.candidates[0]? | .finishReason // empty' <<<"$http_body")
+      [[ $status == STOP ]] || { echo "Gemini response failed ($status)"; echo "$http_body"; exit 1; }
+      local msg
+      msg=$(jq '.candidates[0].content.parts[0].text' <<<"$http_body")
+      shell_command_requested=$(jq -r 'fromjson.shell_command_requested' <<<"$msg")
+      shell_command_explanation=$(jq -r 'fromjson.shell_command_explanation' <<<"$msg")
+      shell_command=$(jq -r 'fromjson.shell_command' <<<"$msg")
+      chat_response=$(jq -r 'fromjson.chat_response' <<<"$msg")
+      ;;
+  esac
 
   last_action_type="new_assistant_response"
 }
-
-call_api() {
-  case $api_provider in
-    openai) call_openai_api ;;
-    gemini) call_gemini_api ;;
-    *) printf 'Unsupported API provider: %s\n' "$api_provider" >&2; exit 1 ;;
-  esac
-}
-
 # show menu under input line, supported menu_items one or more in "yeq"
-show_conversation_menu() {
+conv_show_menu() {
   local menu_items="$1"
   if [[ -z "$menu_items" || -n "${menu_items//[req]/}" ]]; then
     printf 'Invalid menu items: %s\n' "$menu_items" >&2
@@ -532,130 +471,140 @@ show_conversation_menu() {
   tput rc # restore cursor position
 }
 
-continuous_conversation() {
-  while true; do
-    if [[ "$last_action_type" == "new_assistant_response" ]]; then
-      if [[ "$shell_command_requested" == "true" ]]; then
-        last_action_type="cmd_new_response"
+# single handler for all states
+conv_show_output() {
+  case "$last_action_type" in
+    cmd_new_response)
+      add_to_history "$user_prompt" "suggested shell cmd:\"$shell_command\""
+      printf '\n- %s%s%s\n\n' "$GREY" "$shell_command_explanation" "$RESET"
+      tput el
+      printf '%scmd:%s>%s\n' "$GREY" "$GREEN" "$RESET"
+      printf '%s%s%s\n' "$YELLOW" "$shell_command" "$RESET"
+      tput el
+      conv_show_menu "req"
+      ;;
+    cmd_edited)
+      tput cuu 2; tput el
+      printf '%supdated cmd:%s>%s\n' "$GREY" "$GREEN" "$RESET"
+      tput el
+      printf '%s%s%s\n' "$YELLOW" "$shell_command" "$RESET"
+      tput el
+      conv_show_menu "req"
+      ;;
+    cmd_executed)
+      conv_show_menu "eq"
+      ;;
+    chat_new_response)
+      add_to_history "$user_prompt" "$chat_response"
+      if command -v glow >/dev/null 2>&1; then
+        echo "$chat_response" | glow - -w "$(tput cols)"
       else
-        last_action_type="chat_new_response"
+        printf '\n%s\n\n' "$chat_response"
       fi
-    fi
+      conv_show_menu "q"
+      ;;
+    empty_user_prompt)
+      printf '\n  Hi!\n\n'
+      conv_show_menu "q"
+      last_action_type="chat_new_response"
+      ;;
+    *)
+      printf 'Menu Error - %s\n' "$last_action_type" >&2
+      exit 1
+      ;;
+  esac
+}
+# Define user input transitions based on [state:input_pattern]
+conv_handle_user_input() {
+  case "$1:$2" in
+    cmd_new_response:[Rr]|cmd_edited:[Rr])
+      conv_run_shell_command
+      last_action_type="cmd_executed"
+      ;;
+    cmd_new_response:[Ee]|cmd_edited:[Ee]|cmd_executed:[Ee])
+      conv_edit_shell_command
+      last_action_type="cmd_edited"
+      ;;
+    *:[Qq]|*:)
+      tput el
+      printf '%sbye%s\n' "$GREY" "$RESET"
+      return 1
+      ;;
+    *:?*)
+      last_action_type="new_user_prompt"
+      ;;
+    *)
+      printf 'Menu Error (input dispatch)\n' >&2
+      exit 1
+      ;;
+  esac
+  return 0
+}
 
-    # add to history and show responses according to its type
-    case "$last_action_type" in
-      "cmd_new_response")
-        add_to_history "$user_prompt" "suggested shell cmd:\"$shell_command\""
-        printf '\n- %s%s%s\n\n' "$GREY" "$shell_command_explanation" "$RESET"
-        tput el
-        printf '%scmd:%s>%s\n' "$GREY" "$GREEN" "$RESET"
-        printf '%s%s%s\n' "$YELLOW" "$shell_command" "$RESET"
-        tput el
-        show_conversation_menu "req"
-        ;;
-      "cmd_edited")
-        tput cuu 2
-        tput el
-        printf '%supdated cmd:%s>%s\n' "$GREY" "$GREEN" "$RESET"
-        tput el
-        printf '%s%s%s\n' "$YELLOW" "$shell_command" "$RESET"
-        tput el
-        show_conversation_menu "req"
-        ;;
-      "cmd_executed")
-        show_conversation_menu "eq"
-        ;;
-      "chat_new_response")
-        add_to_history "$user_prompt" "$chat_response"
-        if command -v glow >/dev/null 2>&1; then
-          echo "$chat_response" | glow - -w "$(tput cols)"
-        else
-          printf '\n%s\n\n' "$chat_response"
-        fi
-        show_conversation_menu "q"
-        ;;
-      "empty_user_prompt")
-        printf '\n  Hi!\n\n' # AI said hi
-        # hint
-        show_conversation_menu "q"
-        last_action_type="chat_new_response" # becasue AI said hi
-        ;;
+# Helpers
+conv_run_shell_command() {
+  echo "$shell_command" >> ~/.bash_history
+  tput el
+  if eval "$shell_command"; then
+    tput el
+    printf '%sCommand succeeded%s\n' "$GREY" "$RESET"
+    add_to_history "Command succeeded: \"$shell_command\"" "Ok"
+  else
+    tput el
+    printf '%sCommand failed%s\n' "$GREY" "$RESET"
+    add_to_history "Command failed: \"$shell_command\"" "Sorry"
+  fi
+}
 
-      *)
-        printf 'Menu Error - %s\n' "$last_action_type" >&2
-        exit 1
-        ;;
-    esac
+conv_edit_shell_command() {
+  tput cuu1 && tput el
+  printf '%sedit:%s>%s\n' "$GREY" "$GREEN" "$RESET"
+  tput el
+  tput sc # save cursor position
+  printf '\n'
+  printf '%s( %s⏎%s to finish edit)%s' "$GREY" "$CYAN" "$GREY" "$RESET"
+  tput rc # restore cursor position
 
-    # get user input
+  single_line_shell_command=$(echo "$shell_command" | sed 's/\\$//' | tr -d '\n')
+
+  if [[ "$(uname)" == "Darwin" ]]; then
+    # macOS zsh safe input
+    GREEN_ZSH="%{$GREEN%}"
+    RESET_ZSH="%{$RESET%}"
+    encoded_command=$(printf '%s' "$single_line_shell_command" | base64)
+    shell_command=$(zsh -c "
+        shell_command=\$(echo '$encoded_command' | base64 -d)
+        vared -p '${GREEN_ZSH}>>${RESET_ZSH}' -c shell_command
+        echo \"\$shell_command\"")
+  else
+    read -e -r -p "${GREEN_PROMPT}>>${RESET_PROMPT}" \
+         -i "$single_line_shell_command" shell_command </dev/tty
+  fi
+  shell_command=${shell_command:-$single_line_shell_command}
+}
+
+# main loop
+conv_main_loop() {
+  while true; do
+    # Normalize "new_assistant_response"
+    [[ "$last_action_type" == "new_assistant_response" ]] && \
+      last_action_type=$([[ "$shell_command_requested" == "true" ]] &&
+                          echo "cmd_new_response" || echo "chat_new_response")
+
+    # show output
+    conv_show_output
+
+    # read user input
     if ! read -e -r -p "${GREEN_PROMPT}>>${RESET_PROMPT}" user_input </dev/tty; then
-      break  # Exit on read error (e.g., Ctrl-D)
+      break
     fi
-    case "${last_action_type}:${user_input}" in
-      cmd_new_response:[Rr]|cmd_edited:[Rr])
-        echo "$shell_command" >> ~/.bash_history
-        tput el
-        if eval "$shell_command"; then
-          tput el
-          printf '%sCommand succeeded%s\n' "$GREY" "$RESET"
-          add_to_history "Command succeeded: \"$shell_command\"" "Ok"
-        else
-          tput el
-          printf '%sCommand failed%s\n' "$GREY" "$RESET"
-          add_to_history "Command failed: \"$shell_command\"" "Sorry"
-        fi
-        last_action_type="cmd_executed"
-        ;;
-      cmd_new_response:[Ee]|cmd_edited:[Ee]|cmd_executed:[Ee])
-        tput cuu1 && tput el
-        printf '%sedit:%s>%s\n' "$GREY" "$GREEN" "$RESET"
-        tput el
 
-        tput sc # save cursor position
-        printf '\n'
-        printf '%s( %s⏎%s to finish edit)%s' "$GREY" "$CYAN" "$GREY" "$RESET"
-        tput rc # restore cursor position
+    # handle user input
+    if ! conv_handle_user_input "$last_action_type" "$user_input"; then
+      break
+    fi
 
-        single_line_shell_command=$(echo "$shell_command" | sed 's/\\$//' | tr -d '\n')
-        if [[ "$(uname)" == "Darwin" ]]; then
-          # For macOS with ZSH - use base64 encoding to safely pass the command
-          GREEN_ZSH="%{$GREEN%}"
-          RESET_ZSH="%{$RESET%}"
-  
-          # Encode the command to safely pass it
-          encoded_command=$(printf '%s' "$single_line_shell_command" | base64)
-  
-          shell_command=$(zsh -c "
-            shell_command=\$(echo '$encoded_command' | base64 -d)
-            vared -p '$GREEN_ZSH>>$RESET_ZSH' -c shell_command
-            echo \"\$shell_command\"
-            ")
-        else
-          read -e -r -p "${GREEN_PROMPT}>>${RESET_PROMPT}" -i "$single_line_shell_command" shell_command </dev/tty
-        fi
-        if [[ -z "$shell_command" ]]; then
-          shell_command="$single_line_shell_command"
-        fi
-        last_action_type="cmd_edited" 
-        ;;
-      cmd_new_response:[Qq]|cmd_edited:[Qq]|cmd_executed:[Qq]|chat_new_response:[Qq])
-        tput el
-        printf '%sbye%s\n' "$GREY" "$RESET"
-        break
-        ;;
-      cmd_new_response:|cmd_edited:|cmd_executed:|chat_new_response:)
-        tput el
-        printf '%sbye%s\n' "$GREY" "$RESET"
-        break
-        ;;
-      cmd_new_response:?*|cmd_edited:?*|cmd_executed:?*|chat_new_response:?*)
-        last_action_type="new_user_prompt"
-        ;;
-      *)
-        printf 'Menu Error\n' >&2
-        exit 1
-    esac
-    # new request to api
+    # handle api call
     if [[ "$last_action_type" == "new_user_prompt" ]]; then
       arg_input="$user_input"
       piped_input=""
@@ -666,7 +615,7 @@ continuous_conversation() {
   done
 }
 
-# If not a terminal, just output the response in plain text
+# If not interactive, output the response in plain text
 single_time_output() {
   if [[ "$last_action_type" == "new_assistant_response" ]]; then
     if [[ "$shell_command_requested" == "true" ]]; then
@@ -693,7 +642,7 @@ main() {
     if [[ "$last_action_type" == "new_user_prompt" ]]; then
       call_api
     fi
-    continuous_conversation
+    conv_main_loop
   else # Piped output
     call_api
     single_time_output
