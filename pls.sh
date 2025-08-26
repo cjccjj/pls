@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# pls - AI powered cli helper
+# author: cjccjj
+# url: https://github.com/cjccjj/pls
 
 # Configuration and Constants
 readonly CONFIG_FILE="$HOME/.config/pls/pls.conf"
@@ -146,7 +149,6 @@ apply_profile() {
 
   SYSTEM_INSTRUCTION=${BASE_SYSTEM_INSTRUCTION//__SHELL_TYPE__/$shell_type}
   SYSTEM_INSTRUCTION=${SYSTEM_INSTRUCTION//__USER_SYSTEM_INSTRUCTION__/$USER_SYSTEM_INSTRUCTION}
-  echo "$SYSTEM_INSTRUCTION"
 }
 
 # APP FUNCTION DEFINITIONS
