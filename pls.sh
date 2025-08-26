@@ -19,8 +19,6 @@ spinner_pid=0
 stderr_file=""
 show_piped_input=false
 last_action_type="empty_user_prompt"
-task=""
-input=""
 was_input_truncated="false"
 shell_command_requested=""
 shell_command_explanation=""
@@ -29,86 +27,103 @@ chat_response=""
 user_prompt=""
 
 load_and_apply_config() {
-# Default config from config file - will be overwritten by sourcing config file
-# Active profile
-active="openai_1"
-# Additional System Prompt - use with caution, may break functionality
-USER_SYSTEM_INSTRUCTION=""
-# Profile: openai_1
-openai_1_provider="openai"
-openai_1_model="gpt-4o"
-openai_1_url="https://api.openai.com/v1"
-openai_1_key="OPENAI_API_KEY"
-
-# Other settings
-timeout_seconds=60
-max_input_length=64000 # in chars, to avoid too long input from pipe
-history_file="$HOME/.config/pls/pls.log"
-history_time_window_minutes=30
-history_max_records=30
-
 # Create config file with default settings if not exist
   if [[ ! -f "$CONFIG_FILE" ]]; then
     mkdir -p "$(dirname "$CONFIG_FILE")" && cat > "$CONFIG_FILE" <<'EOF'
-# Active profile
-active="openai_1"
-
-# Use with Caution: Additional System Instruction for shell command generation 
+[Global] 
+profile="openai_1"
+USER_SYSTEM_INSTRUCTION=""
 # USER_SYSTEM_INSTRUCTION="If user requests ... , provide the shell_command as echo \"thank you\"... , shell_command_explanation as ... ."
 
-# Profile: openai_1
-openai_1_provider="openai"
-openai_1_model="gpt-4o"
-openai_1_url="https://api.openai.com/v1"
-openai_1_key="OPENAI_API_KEY"
-
-# Profile: openai_2
-openai_2_provider="openai"
-openai_2_model="gpt-5"
-openai_2_url="https://api.openai.com/v1"
-openai_2_key="OPENAI_API_KEY"
-
-# Profile: gemini_1
-gemini_1_provider="gemini"
-gemini_1_model="gemini-2.5-flash"
-gemini_1_url="https://generativelanguage.googleapis.com/v1beta"
-gemini_1_key="GEMINI_API_KEY"
-
-# Other settings
 timeout_seconds=60
 max_input_length=64000
 history_file="$HOME/.config/pls/pls.log"
 history_time_window_minutes=30
 history_max_records=30
+
+# Define your own AI profiles, openai and gemini for now
+[openai_1]
+provider="openai"
+model="gpt-4o"
+base_url="https://api.openai.com/v1"
+env_key="OPENAI_API_KEY"
+
+[openai_2]
+provider="openai"
+model="gpt-4o-mini"
+base_url="https://api.openai.com/v1"
+env_key="OPENAI_API_KEY"
+
+[gemini_1]
+provider="gemini"
+model="gemini-2.5-flash"
+base_url="https://generativelanguage.googleapis.com/v1beta"
+env_key="GEMINI_API_KEY"
 EOF
   fi
-  # source config file  
-  if ! source "$CONFIG_FILE"; then
-    echo "Error: Failed to source config file" >&2
-    echo "$CONFIG_FILE" >&2
-    exit 1
-  fi
-  apply_profile
+  # default values
+  profile=""
+  USER_SYSTEM_INSTRUCTION=""
+  timeout_seconds=60
+  max_input_length=64000
+  history_file="$HOME/.config/pls/pls.log"
+  history_time_window_minutes=30
+  history_max_records=30
+
+  # No associative arrays for compatible with macOS’s system Bash
+  local section=""
+  while IFS= read -r line || [[ -n "$line" ]]; do
+      # Strip comments
+      line="${line%%#*}"
+      line="$(echo "$line" | xargs)"   # trim spaces
+      [[ -z "$line" ]] && continue
+
+      # Section headers
+      if [[ "$line" =~ ^\[(.+)\]$ ]]; then
+          section="${BASH_REMATCH[1]}"
+          continue
+      fi
+
+      # Key=Value
+      if [[ "$line" =~ ^([A-Za-z0-9_]+)=(.*)$ ]]; then
+          local key="${BASH_REMATCH[1]}"
+          local val="${BASH_REMATCH[2]}"
+
+          # Strip quotes
+          if [[ "$val" =~ ^\"(.*)\"$ ]]; then
+              val="${BASH_REMATCH[1]}"
+          elif [[ "$val" =~ ^\'(.*)\'$ ]]; then
+              val="${BASH_REMATCH[1]}"
+          fi
+
+          if [[ "$section" == "Global" ]]; then
+              eval "$key=\"\$val\""
+          else
+              eval "profile__${section}__${key}=\"\$val\""
+          fi
+      fi
+  done < "$CONFIG_FILE"
+
+  # Expand $HOME inside history_file etc
+  history_file=$(eval echo "$history_file")
+  apply_profile "$profile"
 }
 
 apply_profile() {
-  # apply profile
-  profile="$active"
-  # Dynamically read profile fields
-  eval "api_provider=\$${profile}_provider"
-  eval "api_model=\$${profile}_model"
-  eval "api_base_url=\$${profile}_url"
-  eval "api_key_env=\$${profile}_key"
-
+  local p="$1"
+  api_provider="$(eval echo "\$profile__${p}__provider")"
+  api_model="$(eval echo "\$profile__${p}__model")"
+  api_base_url="$(eval echo "\$profile__${p}__base_url")"
+  api_env_key="$(eval echo "\$profile__${p}__env_key")"
   # Validate provider
   if [[ "$api_provider" != "openai" && "$api_provider" != "gemini" ]]; then
-    echo "Error: Provider '$api_provider' for profile '$profile' is not supported." >&2
+    echo "Error: Provider '$api_provider' for profile '$p' is not yet supported." >&2
     echo "$CONFIG_FILE" >&2
     exit 1
   else
-    api_key="${!api_key_env}"
+    api_key="${!api_env_key}"
     if [[ -z "$api_key" ]]; then
-      echo "Error: API key for '$profile' not set. Please export $api_key_env"
+      echo "Error: API key for '$p' not set. Please export $api_env_key"
     exit 1
     fi
   fi
@@ -135,7 +150,7 @@ Make sure to adapt these shell_commands in special cases for ${shell_type}.
 # APP FUNCTION DEFINITIONS
 print_usage_and_exit() {
   cat >&2 << EOF
-pls v0.52
+pls v0.53
 
 Usage:    pls [messages...]                       # Chat with an input
           > what is llm                           # Continue chat, q or empty input to quit
@@ -188,7 +203,7 @@ start_spinner() {
 }
 
 stop_spinner() {
-  (( $spinner_pid )) || return
+  (( spinner_pid )) || return
   kill "$spinner_pid" 2>/dev/null
   wait "$spinner_pid" 2>/dev/null
   spinner_pid=0
@@ -511,7 +526,7 @@ show_conversation_menu() {
   [[ "$menu_items" == *e* ]] && printf '%se%sdit, ' "$CYAN" "$GREY"
   [[ "$menu_items" == *q* ]] && printf '%sq%suit, ' "$CYAN" "$GREY"
   printf '%sor continue chat... )%s' "$GREY" "$RESET"
-  if [[ "$was_truncated" == "true" ]]; then
+  if [[ "$was_input_truncated" == "true" ]]; then
     printf 'Note: this response is generated on a truncated input' >&2
   fi
   tput rc # restore cursor position
@@ -580,12 +595,12 @@ continuous_conversation() {
       cmd_new_response:[Rr]|cmd_edited:[Rr])
         echo "$shell_command" >> ~/.bash_history
         tput el
-        eval "$shell_command"
-        tput el
-        if [ $? -eq 0 ]; then
+        if eval "$shell_command"; then
+          tput el
           printf '%sCommand succeeded%s\n' "$GREY" "$RESET"
           add_to_history "Command succeeded: \"$shell_command\"" "Ok"
         else
+          tput el
           printf '%sCommand failed%s\n' "$GREY" "$RESET"
           add_to_history "Command failed: \"$shell_command\"" "Sorry"
         fi
@@ -659,7 +674,7 @@ single_time_output() {
     else
       printf '%s\n' "$chat_response"
     fi
-    if [[ "$was_truncated" == "true" ]]; then
+    if [[ "$was_input_truncated" == "true" ]]; then
       echo "Note: this response is generated on a truncated input" >&2
     fi
   else
