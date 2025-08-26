@@ -459,11 +459,11 @@ conv_show_menu() {
     exit 1
   fi
   tput sc # save cursor position
-  printf '\n%s( %s' "$GREY" "$RESET"
-  [[ "$menu_items" == *r* ]] && printf '%sr%sun, ' "$CYAN" "$GREY"
-  [[ "$menu_items" == *e* ]] && printf '%se%sdit, ' "$CYAN" "$GREY"
-  [[ "$menu_items" == *q* ]] && printf '%sq%suit, ' "$CYAN" "$GREY"
-  printf '%sor continue chat... )%s' "$GREY" "$RESET"
+  printf '\n%s( ' "$GREY"
+  [[ "$menu_items" == *r* ]] && printf '%sr%sun/' "$CYAN" "$GREY"
+  [[ "$menu_items" == *e* ]] && printf '%se%sdit + %s⏎%s : cmd | ' "$CYAN" "$GREY" "$CYAN" "$GREY"
+  [[ "$menu_items" == *q* ]] && printf '%sq%s + %s⏎%s : quit | ' "$CYAN" "$GREY" "$CYAN" "$GREY"
+  printf '%stype: chat )%s' "$GREY" "$RESET"
   if [[ "$was_input_truncated" == "true" ]]; then
     printf 'Note: this response is generated on a truncated input' >&2
   fi
@@ -561,7 +561,7 @@ conv_edit_shell_command() {
   tput el
   tput sc # save cursor position
   printf '\n'
-  printf '%s( %s⏎%s to finish edit)%s' "$GREY" "$CYAN" "$GREY" "$RESET"
+  printf '%s( type + %s⏎%s : finish edit )%s' "$GREY" "$CYAN" "$GREY" "$RESET"
   tput rc # restore cursor position
 
   single_line_shell_command=$(echo "$shell_command" | sed 's/\\$//' | tr -d '\n')
