@@ -13,25 +13,25 @@ proc send {args} {
 set timeout 25
 
 # with default openai_1 profile, cmd generate and edit 
-spawn ./pls
+spawn pls
 
 expect ">>"
 send "run shell command of single quotes and printf to print Test Good\r"
 expect "Test Good" 
-send "y\r"
+send "r\r"
 expect "Test Good"
 send "e\r"
 expect "edit:" 
 send "# edited\r"
 expect "updated cmd:" 
-send "y\r"
+send "r\r"
 expect "Test Good"
 send "e\r"
 expect "edit:" 
 send "\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b\b"
 send "echo test\r"
 expect "echo test" 
-send "y\r"
+send "r\r"
 expect "Command succeeded"
 
 # talk to change to openai_2 profile
@@ -39,7 +39,7 @@ send "change active profile to openai_2\r"
 expect "pls.conf"
 send "use BSD/macOS style\r"
 expect "pls.conf"
-send "y\r"
+send "r\r"
 expect "Command succeeded"
 
 send "show files\r"
@@ -48,11 +48,11 @@ expect "cmd"
 # talk to change to gemini_1 profile
 send "change active profile to gemini_1\r"
 expect "pls.conf"
-send "y\r"
+send "r\r"
 expect "Command succeeded"
 send "delete all chat history\r"
 expect "pls.log"
-send "y\r"
+send "r\r"
 expect "Command succeeded"
 send "what we talked about?\r"
 expect ">>"
