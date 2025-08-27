@@ -33,5 +33,6 @@ jobs:
       
       - name: Run interactive script with expect
         run: |
+          chmod +x ./.github/scripts/simulate_chat.expect
           script -q -e /dev/null ./.github/scripts/simulate_chat.expect
 
