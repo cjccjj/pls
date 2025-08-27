@@ -27,11 +27,10 @@ jobs:
       - name: Install expect
         run: brew install expect
         
-      - name: Make script executable
+      - name: Install pls
         run: |
-          chmod +x ./pls
-          chmod +x ./.github/scripts/simulate_chat.expect
-
+          echo y | curl -sSL https://raw.githubusercontent.com/cjccjj/pls/main/install.sh | bash
+      
       - name: Run interactive script with expect
         run: |
           script -q -e /dev/null ./.github/scripts/simulate_chat.expect
