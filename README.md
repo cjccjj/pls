@@ -54,5 +54,5 @@ curl -sSL https://raw.githubusercontent.com/cjccjj/pls/main/install.sh | bash
 - to uninstall
 ```bash
 sudo rm /usr/local/bin/pls # remove the bin
-rm -rf ~/.config/pls # remove config file and chat history
+rm -rf ~/.pls # remove config file and chat history
 ```
