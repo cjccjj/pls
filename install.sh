@@ -6,7 +6,7 @@ read -r -p "Continue? [y/N] " a
 [[ "$a" != [yY] ]] && echo "Aborted." && exit 1
 
 # Backup existing config if present
-mv ~/.config/pls/pls.conf ~/.config/pls/pls_old.conf 2>/dev/null || true
+mv ~/.pls/pls.conf ~/.pls/pls_old.conf 2>/dev/null || true
 
 # Download to temp and install
 tmp=$(mktemp)

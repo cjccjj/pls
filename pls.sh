@@ -4,7 +4,7 @@
 # url: https://github.com/cjccjj/pls
 
 # Configuration and Constants
-readonly CONFIG_FILE="$HOME/.config/pls/pls.conf"
+readonly CONFIG_FILE="$HOME/.pls/pls.conf"
 readonly GREEN=$'\033[32m'  # for line prompt (prefix not AI prompt)
 readonly GREY=$'\033[90m'   # for informative messages
 readonly CYAN=$'\033[36m'   # for menu shortcuts
@@ -34,8 +34,8 @@ BASE_SYSTEM_INSTRUCTION=$(
 If user requests to run a shell command, or the request needs shell commands to fulfill, then provide a very brief plain-text explanation as shell_command_explanation and generate a valid shell command for __SHELL_TYPE__ . If the command is risky like deletes data, shuts down system, kills critical services, cuts network then make sure to prefix it with '# ' to prevent execution; Prefer a single command; Always use '&&' to join commands, and use \ for line continuation on long commands; Use sudo if likely required. 
 If use only enquires about a shell command or user request is not about shell command, then answer concisely and directly as chat_response, prefer under 80 words, use Markdown if it helps. If asked for a fact or result, answer with only the exact value or fact in plain text. Do not include extra words, explanations, or complete sentences.
 Special cases that you also treat as requesting to run a shell command, make sure to adapt for __SHELL_TYPE__: 
-If user requests 'delete all chat history', provide the shell_command as 'rm -f ~/.config/pls/pls.log && echo "chat history deleted" #pls' , and shell_command_explanation as 'pls: delete all chat history'.
-If user requests 'edit config' or 'edit config file of pls' or 'change profile' or 'change settings', provide the shell_command as 'nano ~/.config/pls/pls.conf && load_and_apply_config #pls' , or use vi, and shell_command_explanation as 'pls: edit config file to change profile or settings'.
+If user requests 'delete all chat history', provide the shell_command as 'rm -f __USER_HISTORY_FILE__ && echo "chat history deleted" #pls' , and shell_command_explanation as 'pls: delete all chat history'.
+If user requests 'edit config' or 'edit config file of pls' or 'change profile' or 'change settings', provide the shell_command as 'nano ~/.pls/pls.conf && load_and_apply_config #pls' , or use vi, and shell_command_explanation as 'pls: edit config file to change profile or settings'.
 If user requests 'update yourself', provide the shell_command as 'curl -sSL https://raw.githubusercontent.com/cjccjj/pls/main/install.sh | bash' , and shell_command_explanation as 'pls: download and install to update, then restart pls'.
 __USER_SYSTEM_INSTRUCTION__
 EOF
@@ -52,7 +52,7 @@ profile="openai_1"
 
 timeout_seconds=60
 max_input_length=64000
-history_file="$HOME/.config/pls/pls.log"
+history_file="$HOME/.pls/pls_hist.log"
 history_time_window_minutes=30
 history_max_records=30
 
@@ -81,7 +81,7 @@ EOF
   USER_SYSTEM_INSTRUCTION=""
   timeout_seconds=60
   max_input_length=64000
-  history_file="$HOME/.config/pls/pls.log"
+  history_file="$HOME/.pls/pls_hist.log"
   history_time_window_minutes=30
   history_max_records=30
 
@@ -149,6 +149,7 @@ apply_profile() {
   USER_SYSTEM_INSTRUCTION=${USER_SYSTEM_INSTRUCTION//\\\"/\"}
 
   SYSTEM_INSTRUCTION=${BASE_SYSTEM_INSTRUCTION//__SHELL_TYPE__/$shell_type}
+  SYSTEM_INSTRUCTION=${SYSTEM_INSTRUCTION//__USER_HISTORY_FILE__/$history_file}
   SYSTEM_INSTRUCTION=${SYSTEM_INSTRUCTION//__USER_SYSTEM_INSTRUCTION__/$USER_SYSTEM_INSTRUCTION}
 }
 
@@ -170,7 +171,7 @@ Pipe and Chain:
           pls name a dish | pls -p how to cook    # Chain commands and show piped input with -p
 
 Settings: pls -h                                  # Show this help
-          nano ~/.config/pls/pls.conf             # Choose AI model and change settings
+          nano ~/.pls/pls.conf             # Choose AI model and change settings
 EOF
   exit "${1:-0}"
 }
@@ -225,15 +226,18 @@ add_to_history() {
   local timestamp
   timestamp=$(date +'%Y-%m-%d %H:%M:%S')
 
-  mkdir -p "/tmp/$USER"
-  touch "$history_file"
+  mkdir -p "$(dirname "$history_file")"
+  (
+    flock -x 200
+    touch "$history_file"
 
-  jq -nc --arg role "user" --arg content "$user_message" \
-    --arg time "$timestamp" \
-    '{timestamp: $time, role: $role, content: $content}' >>"$history_file"
-  jq -nc --arg role "assistant" --arg content "$assistant_message" \
-    --arg time "$timestamp" \
-    '{timestamp: $time, role: $role, content: $content}' >>"$history_file"
+    jq -nc --arg role "user" --arg content "$user_message" \
+      --arg time "$timestamp" \
+      '{timestamp: $time, role: $role, content: $content}' >>"$history_file"
+    jq -nc --arg role "assistant" --arg content "$assistant_message" \
+      --arg time "$timestamp" \
+      '{timestamp: $time, role: $role, content: $content}' >>"$history_file"
+  ) 200>"${history_file}.lock"
 }
 
 read_from_history() {
