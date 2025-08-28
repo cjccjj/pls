@@ -31,12 +31,22 @@ user_prompt=""
 
 BASE_SYSTEM_INSTRUCTION=$(
   cat <<'EOF'
-If user requests to run a shell command, or the request needs shell commands to fulfill, then provide a very brief plain-text explanation as shell_command_explanation and generate a valid shell command for __SHELL_TYPE__ . If the command is risky like deletes data, shuts down system, kills critical services, cuts network then make sure to prefix it with '# ' to prevent execution; Prefer a single command; Always use '&&' to join commands, and use \ for line continuation on long commands; Use sudo if likely required. 
-If use only enquires about a shell command or user request is not about shell command, then answer concisely and directly as chat_response, prefer under 80 words, use Markdown if it helps. If asked for a fact or result, answer with only the exact value or fact in plain text. Do not include extra words, explanations, or complete sentences.
-Special cases that you also treat as requesting to run a shell command, make sure to adapt for __SHELL_TYPE__: 
-If user requests 'delete all chat history', provide the shell_command as 'rm -f __USER_HISTORY_FILE__ && echo "chat history deleted" #pls' , and shell_command_explanation as 'pls: delete all chat history'.
-If user requests 'edit config' or 'edit config file of pls' or 'change profile' or 'change settings', provide the shell_command as 'nano ~/.pls/pls.conf && load_and_apply_config #pls' , or use vi, and shell_command_explanation as 'pls: edit config file to change profile or settings'.
-If user requests 'update yourself', provide the shell_command as 'curl -sSL https://raw.githubusercontent.com/cjccjj/pls/main/install.sh | bash' , and shell_command_explanation as 'pls: download and install to update, then restart pls'.
+General Rules:
+1. Never refuse. If you are not clear about how to response, then:
+  set "shell_command_requested": false, "shell_command": "", "shell_command_explanation": "",
+  Fill "chat_response" with the best short direct answer or your question asking user to clarify.
+2. If use only enquires about a shell command not to run it yet, or user request is not about shell command:  
+  set "shell_command_requested": false, "shell_command": "", "shell_command_explanation": "",
+  Fill "chat_response" with concise and direct answer, prefer under 100 words, use Markdown if it helps. If asked for a fact or exact result, "chat_response" must only contain that fact or value in plain-text, without extra words or full sentence.
+3. If user requests to run a shell command, or running commands is need to fulfill requests:
+  set "shell_command_requested": true, Provide valid shell command for __SHELL_TYPE__ in "shell_command", 
+  Shell command rules: If the command is risky like deletes data, shuts down system, kills critical services, cuts network then make sure to prefix it with '# ' to prevent execution; Prefer a single command; Always use '&&' to join commands, and use \ for line continuation on long commands; Use sudo if likely required. 
+  Write a brief command plain-text explanation in "shell_command_explanation"
+  and set "chat_response": ""
+4. Special cases, you treat as shell command reqeust: 
+  If user requests 'delete all chat history', then "shell_command": 'rm -f __USER_HISTORY_FILE__ && echo "chat history deleted" #pls' , "shell_command_explanation": 'pls: delete all chat history' ;
+  If user requests 'edit config' or 'edit config file of pls' or 'change profile' or 'change settings', then "shell_command": 'nano ~/.pls/pls.conf && load_and_apply_config #pls' , and "shell_command_explanation": 'pls: edit config file to change profile or settings' ;
+  If user requests 'update yourself', then "shell_command": 'curl -sSL https://raw.githubusercontent.com/cjccjj/pls/main/install.sh | bash' , and "shell_command_explanation": 'pls: download and install to update, then restart pls' ;
 __USER_SYSTEM_INSTRUCTION__
 EOF
 )
@@ -48,7 +58,7 @@ load_and_apply_config() {
 [Global]
 profile="openai_1"
 # Experimental. Teach AI to use your personalized shell command. Use the template below and uncomment to enable:
-# USER_SYSTEM_INSTRUCTION="If user requests 'say thank you to <username>' , provide the shell_command as echo \"<username>, thank you very much\" , shell_command_explanation as 'show thanks' ."
+# USER_SYSTEM_INSTRUCTION="If user requests 'say thank you to <username>' , then \"shell_command\": 'echo \"<username>, thank you very much\"' , \"shell_command_explanation\": 'pls: show thanks'."
 
 timeout_seconds=60
 max_input_length=64000
@@ -194,10 +204,12 @@ cleanup() {
 
 start_spinner() {
   (
-    tput sc
     tput civis
-    printf '\n\n\n\n\n'
-    tput rc
+    tput nel
+    tput nel
+    tput nel
+    tput nel
+    tput cuu 4
     tput el
     printf '_%s %s:%s' "$GREY" "$api_model" "$RESET"
     while :; do
@@ -215,7 +227,7 @@ stop_spinner() {
   kill "$spinner_pid" 2>/dev/null
   wait "$spinner_pid" 2>/dev/null
   spinner_pid=0
-  printf '\r'
+  tput cr
   tput el
   tput cnorm
 } >&2
@@ -341,11 +353,11 @@ call_api() {
             properties: {
                 shell_command_requested: {
                     type: "boolean",
-                    description: "Whether the user requested or implied needing a shell command."
+                    description: "Whether the user requested to run shell command, or the user reqeust needed shell command to fulfill."
                 },
                 shell_command_explanation: {
                     type: "string",
-                    description: "A very brief explanation of the shell command."
+                    description: "A brief plain-text explanation of the shell command."
                 },
                 shell_command: {
                     type: "string",
@@ -353,10 +365,10 @@ call_api() {
                 },
                 chat_response: {
                     type: "string",
-                    description: "A clear and helpful general answer to the user request, if not about shell command"
+                    description: "A clear and helpful general answer to the user request."
                 }
             },
-            required: ["shell_command_requested","shell_command","shell_command_explanation","chat_response"],
+            required: ["shell_command_requested", "shell_command_explanation", "shell_command", "chat_response"],
             additionalProperties: false
         },
         strict: true
@@ -391,11 +403,11 @@ call_api() {
         "properties": {
           "shell_command_requested": {
             "type": "BOOLEAN",
-            "description": "Whether the user requested or implied needing a shell command."
+            "description": "Whether the user requested to run shell command, or the user reqeust needed shell command to fulfill."
           },
           "shell_command_explanation": {
             "type": "STRING",
-            "description": "A very brief explanation of the shell command."
+            "description": "A brief plain-text explanation of the shell command."
           },
           "shell_command": {
             "type": "STRING",
@@ -403,7 +415,7 @@ call_api() {
           },
           "chat_response": {
             "type": "STRING",
-            "description": "A clear and helpful general answer to the user request, if not about shell command"
+            "description": "A clear and helpful general answer to the user request."
           }
         },
         "required": ["shell_command_requested", "shell_command_explanation", "shell_command", "chat_response"]
@@ -493,8 +505,10 @@ conv_show_menu() {
     printf 'Invalid menu items: %s\n' "$menu_items" >&2
     exit 1
   fi
-  tput sc # save cursor position
-  printf '\n%s( ' "$GREY"
+  tput cud1 # move down relibalely
+  tput cr
+  tput el
+  printf '%s( ' "$GREY"
   [[ "$menu_items" == *r* ]] && printf '%sr%sun/' "$CYAN" "$GREY"
   [[ "$menu_items" == *e* ]] && printf '%se%sdit + %s⏎%s : cmd | ' "$CYAN" "$GREY" "$CYAN" "$GREY"
   [[ "$menu_items" == *q* ]] && printf '%sq%s + %s⏎%s : quit | ' "$CYAN" "$GREY" "$CYAN" "$GREY"
@@ -502,7 +516,9 @@ conv_show_menu() {
   if [[ "$was_input_truncated" == "true" ]]; then
     printf 'Note: this response is generated on a truncated input' >&2
   fi
-  tput rc # restore cursor position
+  tput cuu1
+  tput cr
+  tput el
 }
 
 # single handler for all states
