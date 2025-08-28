@@ -506,10 +506,10 @@ conv_show_menu() {
   tput cr
   tput el
   printf '%s( ' "$GREY"
-  [[ "$menu_items" == *r* ]] && printf '%sr%sun/' "$CYAN" "$GREY"
-  [[ "$menu_items" == *e* ]] && printf '%se%sdit + %s⏎%s : cmd | ' "$CYAN" "$GREY" "$CYAN" "$GREY"
-  [[ "$menu_items" == *q* ]] && printf '%sq%s + %s⏎%s : quit | ' "$CYAN" "$GREY" "$CYAN" "$GREY"
-  printf '%stype: chat )%s' "$GREY" "$RESET"
+  [[ "$menu_items" == *r* ]] && printf '%sr ⏎%s : run cmd | ' "$CYAN" "$GREY"
+  [[ "$menu_items" == *e* ]] && printf '%se ⏎%s : edit cmd | ' "$CYAN" "$GREY" 
+  [[ "$menu_items" == *q* ]] && printf '%sq ⏎%s : quit | ' "$CYAN" "$GREY"
+  printf '... %s⏎%s : chat )%s' "$CYAN" "$GREY" "$RESET"
   if [[ "$was_input_truncated" == "true" ]]; then
     printf 'Note: this response is generated on a truncated input' >&2
   fi
@@ -613,7 +613,7 @@ conv_edit_shell_command() {
   tput el
   tput nel
   tput el
-  printf '%s( type + %s⏎%s : finish edit )%s' "$GREY" "$CYAN" "$GREY" "$RESET"
+  printf '%s( %s⏎%s : save changes, won'\''t run yet )%s' "$GREY" "$CYAN" "$GREY" "$RESET"
   tput cr
   tput cuu1
   tput el
