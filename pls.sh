@@ -608,13 +608,18 @@ conv_run_shell_command() {
 }
 
 conv_edit_shell_command() {
-  tput cuu1 && tput el
-  printf '%sedit:%s>%s\n' "$GREY" "$GREEN" "$RESET"
+  tput cuu1
+  tput cr
   tput el
-  tput sc # save cursor position
-  printf '\n'
+  printf '%sedit:%s>%s' "$GREY" "$GREEN" "$RESET"
+  tput nel
+  tput el
+  tput nel
+  tput el
   printf '%s( type + %s⏎%s : finish edit )%s' "$GREY" "$CYAN" "$GREY" "$RESET"
-  tput rc # restore cursor position
+  tput cr
+  tput cuu1
+  tput el
 
   single_line_shell_command=$(echo "$shell_command" | sed 's/\\$//' | tr -d '\n')
 
