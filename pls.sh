@@ -239,17 +239,14 @@ add_to_history() {
   timestamp=$(date +'%Y-%m-%d %H:%M:%S')
 
   mkdir -p "$(dirname "$history_file")"
-  (
-    flock -x 200
-    touch "$history_file"
+  touch "$history_file"
 
-    jq -nc --arg role "user" --arg content "$user_message" \
-      --arg time "$timestamp" \
-      '{timestamp: $time, role: $role, content: $content}' >>"$history_file"
-    jq -nc --arg role "assistant" --arg content "$assistant_message" \
-      --arg time "$timestamp" \
-      '{timestamp: $time, role: $role, content: $content}' >>"$history_file"
-  ) 200>"${history_file}.lock"
+  jq -nc --arg user_msg "$user_message" --arg assistant_msg "$assistant_message" \
+    --arg time "$timestamp" '
+      [
+        {timestamp: $time, role: "user", content: $user_msg},
+        {timestamp: $time, role: "assistant", content: $assistant_msg}
+      ][]' >>"$history_file"
 }
 
 read_from_history() {
