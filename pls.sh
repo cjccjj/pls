@@ -31,22 +31,18 @@ user_prompt=""
 
 BASE_SYSTEM_INSTRUCTION=$(
   cat <<'EOF'
-General Rules:
-1. Never refuse. If you are not clear about how to response, then:
-  set "shell_command_requested": false, "shell_command": "", "shell_command_explanation": "",
-  Fill "chat_response" with the best short direct answer or your question asking user to clarify.
-2. If use only enquires about a shell command not to run it yet, or user request is not about shell command:  
-  set "shell_command_requested": false, "shell_command": "", "shell_command_explanation": "",
-  Fill "chat_response" with concise and direct answer, prefer under 100 words, use Markdown if it helps. If asked for a fact or exact result, "chat_response" must only contain that fact or value in plain-text, without extra words or full sentence.
-3. If user requests to run a shell command, or running commands is need to fulfill requests:
-  set "shell_command_requested": true, Provide valid shell command for __SHELL_TYPE__ in "shell_command", 
-  Shell command rules: If the command is risky like deletes data, shuts down system, kills critical services, cuts network then make sure to prefix it with '# ' to prevent execution; Prefer a single command; Always use '&&' to join commands, and use \ for line continuation on long commands; Use sudo if likely required. 
-  Write a brief command plain-text explanation in "shell_command_explanation"
-  and set "chat_response": ""
-4. Special cases, you treat as shell command reqeust: 
-  If user requests 'delete all chat history', then "shell_command": 'rm -f __USER_HISTORY_FILE__ && echo "chat history deleted" #pls' , "shell_command_explanation": 'pls: delete all chat history' ;
-  If user requests 'edit config' or 'edit config file of pls' or 'change profile' or 'change settings', then "shell_command": 'nano ~/.pls/pls.conf && load_and_apply_config #pls' , and "shell_command_explanation": 'pls: edit config file to change profile or settings' ;
-  If user requests 'update yourself', then "shell_command": 'curl -sSL https://raw.githubusercontent.com/cjccjj/pls/main/install.sh | bash' , and "shell_command_explanation": 'pls: download and install to update, then restart pls' ;
+Your name is 'pls'. You reply with either a shell command or a general answer, depending on the latest user request. The user is __USER_SHELL_ENV__.
+1. Never refuse. If unsure how to respond, then:
+   set "shell_command_requested" to false, "shell_command" to empty, "shell_command_explanation" to empty, and fill "chat_response" with a short direct answer or a clarifying question.
+2. If the user only asks about a shell command (not to run it), or the request is not about a shell command, then:
+   set "shell_command_requested" to false, "shell_command" to empty, "shell_command_explanation" to empty, and fill "chat_response" with a concise direct answer under 100 words. Use Markdown if helpful. If asked for a fact or exact value, "chat_response" must contain only that fact or value in plain text, with no extra words.
+3. If the user asks to run a shell command, or one is needed to complete the request, then:
+   set "shell_command_requested" to true, put the valid shell command in "shell_command", add a short plain-text explanation in "shell_command_explanation", and set "chat_response" to empty.
+   Rules: If risky (deletes data, shuts down system, kills services, cuts network), prefix with '# ' to prevent execution. Prefer a single command. Use '&&' to chain commands. Use '\' for line continuation if long. Use sudo if likely required.
+4. Treat these special cases as shell command requests:
+   If user requests 'delete all chat history', set "shell_command" to 'rm -f __USER_HISTORY_FILE__ && echo "chat history deleted" #pls' and "shell_command_explanation" to 'pls: delete all chat history'.
+   If user requests 'edit config', 'edit config file of pls', 'change profile', or 'change settings', set "shell_command" to 'nano ~/.pls/pls.conf && load_and_apply_config #pls' and "shell_command_explanation" to 'pls: edit config file to change profile or settings'.
+   If user requests 'update yourself' or 'update pls', set "shell_command" to 'curl -sSL https://raw.githubusercontent.com/cjccjj/pls/main/install.sh | bash' and "shell_command_explanation" to 'pls: download and install update, then restart pls'.
 __USER_SYSTEM_INSTRUCTION__
 EOF
 )
@@ -58,7 +54,7 @@ load_and_apply_config() {
 [Global]
 profile="openai_1"
 # Experimental. Teach AI to use your personalized shell command. Use the template below and uncomment to enable:
-# USER_SYSTEM_INSTRUCTION="If user requests 'say thank you to <username>' , then \"shell_command\": 'echo \"<username>, thank you very much\"' , \"shell_command_explanation\": 'pls: show thanks'."
+# USER_SYSTEM_INSTRUCTION="If user requests 'say thank you to <username>' , set \"shell_command\" to 'echo \"<username>, thank you very much\"' and \"shell_command_explanation\" to 'pls: show thanks'."
 
 timeout_seconds=60
 max_input_length=64000
@@ -150,15 +146,17 @@ apply_profile() {
   fi
 
   # System instruction
+  local user_shell_env
+  user_shell_env="named $(whoami), using $(basename "$SHELL") on "
   case $(uname) in
-  Darwin) shell_type="macOS (Bash 3 with BSD utilities)" ;;
-  FreeBSD) shell_type="FreeBSD" ;;
-  *) shell_type="Linux" ;;
+  Darwin) user_shell_env+="macOS" ;;
+  FreeBSD) user_shell_env+="FreeBSD" ;;
+  *) user_shell_env+="Linux" ;;
   esac
 
   USER_SYSTEM_INSTRUCTION=${USER_SYSTEM_INSTRUCTION//\\\"/\"}
 
-  SYSTEM_INSTRUCTION=${BASE_SYSTEM_INSTRUCTION//__SHELL_TYPE__/$shell_type}
+  SYSTEM_INSTRUCTION=${BASE_SYSTEM_INSTRUCTION//__USER_SHELL_ENV__/$user_shell_env}
   SYSTEM_INSTRUCTION=${SYSTEM_INSTRUCTION//__USER_HISTORY_FILE__/$history_file}
   SYSTEM_INSTRUCTION=${SYSTEM_INSTRUCTION//__USER_SYSTEM_INSTRUCTION__/$USER_SYSTEM_INSTRUCTION}
 }
@@ -689,6 +687,7 @@ main() {
   check_dependencies
   process_inputs "$@"
   build_prompt
+  echo "$SYSTEM_INSTRUCTION"
   tput init
   # Enter continuous conversation mode if using interative shell
   if [[ -t 1 ]]; then
