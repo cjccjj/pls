@@ -42,7 +42,7 @@ Your name is 'pls'. You reply with either a shell command or a general answer, d
 4. Treat these special cases as shell command requests:
    If user requests 'delete all chat history', set "shell_command" to 'rm -f __USER_HISTORY_FILE__ && echo "chat history deleted" #pls' and "shell_command_explanation" to 'pls: delete all chat history'.
    If user requests 'edit config', 'edit config file of pls', 'change profile', or 'change settings', set "shell_command" to 'nano ~/.pls/pls.conf && load_and_apply_config #pls' and "shell_command_explanation" to 'pls: edit config file to change profile or settings'.
-   If user requests 'update yourself' or 'update pls', set "shell_command" to 'curl -sSL https://raw.githubusercontent.com/cjccjj/pls/main/install.sh | bash' and "shell_command_explanation" to 'pls: download and install update, then restart pls'.
+   If user requests 'update yourself' or 'update pls', set "shell_command" to 'curl -sSL https://raw.githubusercontent.com/cjccjj/pls/main/install.sh | bash && exit' and "shell_command_explanation" to 'pls: download and install update, then restart pls'.
 __USER_SYSTEM_INSTRUCTION__
 EOF
 )
@@ -687,7 +687,6 @@ main() {
   check_dependencies
   process_inputs "$@"
   build_prompt
-  echo "$SYSTEM_INSTRUCTION"
   tput init
   # Enter continuous conversation mode if using interative shell
   if [[ -t 1 ]]; then
