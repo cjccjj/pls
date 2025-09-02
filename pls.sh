@@ -13,6 +13,12 @@ readonly RESET=$'\033[0m'
 # Create wrapped versions specifically for readline prompts
 readonly GREEN_PROMPT=$'\001'"${GREEN}"$'\002'
 readonly RESET_PROMPT=$'\001'"${RESET}"$'\002'
+readonly USER_MARKER='> '
+# readonly AI_MARKER=""
+readonly CMD_RUN_MARKER='# Command:'
+readonly CMD_UPD_MARKER='# Updated command:'
+readonly CMD_EXP_MARKER='# '
+readonly CMD_EDT_MARKER='# Edit:'
 
 readonly SPINNER_DELAY=0.2
 readonly SPINNER_FRAMES=(⠷ ⠯ ⠟ ⠻ ⠽ ⠾)
@@ -521,9 +527,9 @@ conv_show_output() {
   case "$last_action_type" in
   cmd_new_response)
     add_to_history "$user_prompt" "suggested shell cmd:\"$shell_command\""
-    printf '\n- %s%s%s\n\n' "$GREY" "$shell_command_explanation" "$RESET"
+    printf '\n%s%s%s%s\n' "$GREY" "$CMD_EXP_MARKER" "$shell_command_explanation" "$RESET"
     tput el
-    printf '%scmd:%s>%s\n' "$GREY" "$GREEN" "$RESET"
+    printf '%s%s%s\n' "$GREY" "$CMD_RUN_MARKER" "$RESET"
     printf '%s%s%s\n' "$YELLOW" "$shell_command" "$RESET"
     tput el
     conv_show_menu "req"
@@ -531,7 +537,7 @@ conv_show_output() {
   cmd_edited)
     tput cuu 2
     tput el
-    printf '%supdated cmd:%s>%s\n' "$GREY" "$GREEN" "$RESET"
+    printf '%s%s%s\n' "$GREY" "$CMD_UPD_MARKER" "$RESET"
     tput el
     printf '%s%s%s\n' "$YELLOW" "$shell_command" "$RESET"
     tput el
@@ -593,11 +599,11 @@ conv_run_shell_command() {
   tput el
   if eval "$shell_command"; then
     tput el
-    printf '%sCommand succeeded%s\n' "$GREY" "$RESET"
+    printf '%s# Command succeeded%s\n' "$GREY" "$RESET"
     add_to_history "Command succeeded: \"$shell_command\"" "Ok"
   else
     tput el
-    printf '%sCommand failed%s\n' "$GREY" "$RESET"
+    printf '%s# Command failed%s\n' "$GREY" "$RESET"
     add_to_history "Command failed: \"$shell_command\"" "Sorry"
   fi
 }
@@ -606,7 +612,7 @@ conv_edit_shell_command() {
   tput cuu1
   tput cr
   tput el
-  printf '%sedit:%s>%s' "$GREY" "$GREEN" "$RESET"
+  printf '%s%s%s' "$GREY" "$CMD_EDT_MARKER" "$RESET"
   tput nel
   tput el
   tput nel
@@ -625,10 +631,10 @@ conv_edit_shell_command() {
     encoded_command=$(printf '%s' "$single_line_shell_command" | base64)
     shell_command=$(zsh -c "
         shell_command=\$(echo '$encoded_command' | base64 -d)
-        vared -p '${GREEN_ZSH}>>${RESET_ZSH}' -c shell_command
+        vared -p '${GREEN_ZSH}${USER_MARKER}${RESET_ZSH}' -c shell_command
         echo \"\$shell_command\"")
   else
-    read -e -r -p "${GREEN_PROMPT}>>${RESET_PROMPT}" \
+    read -e -r -p "${GREEN_PROMPT}${USER_MARKER}${RESET_PROMPT}" \
       -i "$single_line_shell_command" shell_command </dev/tty
   fi
   shell_command=${shell_command:-$single_line_shell_command}
@@ -646,7 +652,7 @@ conv_main_loop() {
     conv_show_output
 
     # read user input
-    if ! read -e -r -p "${GREEN_PROMPT}>>${RESET_PROMPT}" user_input </dev/tty; then
+    if ! read -e -r -p "${GREEN_PROMPT}${USER_MARKER}${RESET_PROMPT}" user_input </dev/tty; then
       break
     fi
 
