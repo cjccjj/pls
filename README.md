@@ -1,16 +1,22 @@
-## pls - cli AI helper
-- A command-line helper that talks to AI and generates shell commands, which await your confirmation before running.
-- pls is not a coding tool, but a quick and convenient helper you can use anytime without leaving the command line.
+## pls – Lightweight Command-Line AI Helper
 
-## To stay quick and responsive, pls:
-- Avoids back-and-forth: generates both the chat message and clean shell commands in a single request.
-- Maintains short-term conversation history, no need to manage sessions.
-- Uses a short system instruction, customizable by the user, with no tool calling.
-- Supports inline shell command regeneration and editing.
-- Accepts input from pipes and allows command chaining.
-- Is polite, minimal, and easy to use.
-- (Experimental) Can be configured by conversation, e.g. “update yourself,” “edit config,” “delete chat history.”
-- Supports both the OpenAI API and Gemini API.
+**Stop switching contexts.** Many AI CLI tools are heavy, Node.js-based, and trap you in their interface. They might go back and forth just to run a simple `ls`, cutting off real access to your command line.  
+
+`pls` is different: **lightweight, fast, and built for everyday CLI tasks**, keeping you fully in the command line while letting you **seamlessly switch between AI and shell commands**.  
+
+## Key Capabilities
+- Generate **chat messages and shell commands in a single request**, it never “thinks twice.”  
+- Switch effortlessly between **interactive mode** and **command mode** with shared memory.  
+- Keep a **short-term history**, allowing you to pick up anytime without session management.  
+- Run as a **single Bash script**, with no extra tools or MCP needed.  
+- *(Experimental)* Configure via chat: `update yourself`, `edit config`, `delete chat history`.  
+
+## Features
+- AI **chat and shell command generation**  
+- Inline **command regeneration and editing**  
+- Supports **pipes and command chaining**  
+- Works on **Linux and macOS**  
+- Compatible with **OpenAI API** and **Gemini API**  
 
 ## Usage
 ```
