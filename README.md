@@ -8,7 +8,7 @@
 - Generate **chat messages and shell commands in a single request**, it never “thinks twice.”  
 - Switch effortlessly between **interactive mode** and **command mode** with shared memory.  
 - Keep a **short-term history**, allowing you to pick up anytime without session management.  
-- Run as a **single Bash script**, with no extra tools or MCP needed.  
+- Run as a **single Bash script**, with no extra tools or MCP needed, consumes very few tokens.  
 - *(Experimental)* Configure via chat: `update yourself`, `edit config`, `delete chat history`.  
 
 ## Features
