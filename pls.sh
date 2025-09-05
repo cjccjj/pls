@@ -163,7 +163,7 @@ apply_profile() {
 
 print_usage_and_exit() {
   cat >&2 <<EOF
-pls v0.54
+pls v0.55
 
 Usage:    pls [messages...]                       # Chat with an input
           > what is llm                           # Continue chat, q or empty input to quit
