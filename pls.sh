@@ -19,7 +19,6 @@ readonly CMD_RUN_MARKER='# Command:'
 readonly CMD_UPD_MARKER='# Updated command:'
 readonly CMD_EXP_MARKER='# '
 readonly CMD_EDT_MARKER='# Edit:'
-
 readonly SPINNER_DELAY=0.2
 readonly SPINNER_FRAMES=(⠷ ⠯ ⠟ ⠻ ⠽ ⠾)
 
@@ -54,7 +53,6 @@ EOF
 )
 
 load_and_apply_config() {
-  # Create config file with default settings if not exist
   if [[ ! -f "$CONFIG_FILE" ]]; then
     mkdir -p "$(dirname "$CONFIG_FILE")" && cat >"$CONFIG_FILE" <<'EOF'
 [Global]
@@ -106,19 +104,16 @@ EOF
       section="${BASH_REMATCH[1]}"
       continue
     fi
-
     # Key=Value
     if [[ "$line" =~ ^([A-Za-z0-9_]+)[[:space:]]*=[[:space:]]*(.*)$ ]]; then
       local key="${BASH_REMATCH[1]}"
       local val="${BASH_REMATCH[2]}"
-
       # Strip quotes
       if [[ "$val" =~ ^\"(.*)\"$ ]]; then
         val="${BASH_REMATCH[1]}"
       elif [[ "$val" =~ ^\'(.*)\'$ ]]; then
         val="${BASH_REMATCH[1]}"
       fi
-
       if [[ "$section" == "Global" ]]; then
         eval "$key=\"\$val\""
       else
@@ -126,7 +121,6 @@ EOF
       fi
     fi
   done <"$CONFIG_FILE"
-
   # Expand $HOME inside history_file etc
   history_file=$(eval echo "$history_file")
   apply_profile "$profile"
@@ -151,7 +145,7 @@ apply_profile() {
     fi
   fi
 
-  # System instruction
+  # Construct system instruction
   local user_shell_env
   user_shell_env="named $(whoami), using $(basename "$SHELL") on "
   case $(uname) in
@@ -167,7 +161,6 @@ apply_profile() {
   SYSTEM_INSTRUCTION=${SYSTEM_INSTRUCTION//__USER_SYSTEM_INSTRUCTION__/$USER_SYSTEM_INSTRUCTION}
 }
 
-# APP FUNCTION DEFINITIONS
 print_usage_and_exit() {
   cat >&2 <<EOF
 pls v0.54
@@ -338,8 +331,6 @@ build_prompt() {
 
 call_api() {
   local payload endpoint headers
-
-  # ---------------- Provider differences -----------------
   case $api_provider in
   openai)
     endpoint="$api_base_url/responses"
@@ -441,7 +432,7 @@ call_api() {
     ;;
   esac
 
-  # ---------------- Shared: do the request -----------------
+  # do reqeust
   stderr_file=$(mktemp)
   start_spinner
   local response
@@ -460,7 +451,7 @@ call_api() {
     exit 1
   }
 
-  # ---------------- Provider-specific parse -----------------
+  # do parse
   case $api_provider in
   openai)
     local status
@@ -499,7 +490,7 @@ call_api() {
 
   last_action_type="new_assistant_response"
 }
-# show menu under input line, supported menu_items one or more in "yeq"
+# show menu under input line, supported menu_items one or more in "req"
 conv_show_menu() {
   local menu_items="$1"
   if [[ -z "$menu_items" || -n "${menu_items//[req]/}" ]]; then
@@ -511,7 +502,7 @@ conv_show_menu() {
   tput el
   printf '%s( ' "$GREY"
   [[ "$menu_items" == *r* ]] && printf '%sr ⏎%s : run cmd | ' "$CYAN" "$GREY"
-  [[ "$menu_items" == *e* ]] && printf '%se ⏎%s : edit cmd | ' "$CYAN" "$GREY" 
+  [[ "$menu_items" == *e* ]] && printf '%se ⏎%s : edit cmd | ' "$CYAN" "$GREY"
   [[ "$menu_items" == *q* ]] && printf '%sq ⏎%s : quit | ' "$CYAN" "$GREY"
   printf '... %s⏎%s : chat )%s' "$CYAN" "$GREY" "$RESET"
   if [[ "$was_input_truncated" == "true" ]]; then
@@ -522,7 +513,6 @@ conv_show_menu() {
   tput el
 }
 
-# single handler for all states
 conv_show_output() {
   case "$last_action_type" in
   cmd_new_response)
@@ -566,7 +556,7 @@ conv_show_output() {
     ;;
   esac
 }
-# Define user input transitions based on [state:input_pattern]
+
 conv_handle_user_input() {
   case "$1:$2" in
   cmd_new_response:[Rr] | cmd_edited:[Rr])
@@ -640,7 +630,7 @@ conv_edit_shell_command() {
   shell_command=${shell_command:-$single_line_shell_command}
 }
 
-# main loop
+# main conversation loop
 conv_main_loop() {
   while true; do
     # Normalize "new_assistant_response"
@@ -661,7 +651,7 @@ conv_main_loop() {
       break
     fi
 
-    # handle api call
+    # make new api call
     if [[ "$last_action_type" == "new_user_prompt" ]]; then
       arg_input="$user_input"
       piped_input=""
