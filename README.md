@@ -24,7 +24,8 @@
 ## Tips for using `pls`
 
 - Use `cat`, `tail`, or any command **pipe** to feed data into `pls`.
-- You can also feed "knowhow" like `your app --help | pls learn it`   
+- You can also feed "knowhow" like `my_app --help | pls learn it`
+- Or generate data for your app `pls generate some markdown demo | python my_markdown_render.py`   
 - Give orders in chat mode, refine your request as many times until satisfied.  
 - Quit chat at any time to run any command you want, and pick it up again anywhere, anytime, by typing `pls`.  
 - Use AI for its **flexibility** to handle anything; for simple commands, run them yourself for **efficiency**.  
