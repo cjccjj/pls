@@ -666,8 +666,10 @@ conv_main_loop() {
 raw_output() {
   if [[ "$last_action_type" == "new_assistant_response" ]]; then
     if [[ "$shell_command_requested" == "true" ]]; then
+      add_to_history "$user_prompt" "suggested shell cmd:\"$shell_command\""
       printf '%s\n' "$shell_command"
     else
+      add_to_history "$user_prompt" "$chat_response"
       printf '%s\n' "$chat_response"
     fi
     if [[ "$was_input_truncated" == "true" ]]; then
