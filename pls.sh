@@ -195,7 +195,7 @@ check_dependencies() {
 
 cleanup() {
   stop_spinner
-  tput cnorm
+  tput cnorm >&2
   [[ -n "$stderr_file" ]] && rm -f "$stderr_file"
 }
 
@@ -663,7 +663,7 @@ conv_main_loop() {
 }
 
 # If not interactive, output only the major response in plain text
-single_time_output() {
+raw_output() {
   if [[ "$last_action_type" == "new_assistant_response" ]]; then
     if [[ "$shell_command_requested" == "true" ]]; then
       printf '%s\n' "$shell_command"
@@ -683,16 +683,16 @@ main() {
   check_dependencies
   process_inputs "$@"
   build_prompt
-  tput init
   # Enter continuous conversation mode if using interative shell
   if [[ -t 1 ]]; then
-    if [[ "$last_action_type" == "new_user_prompt" ]]; then
+    tput init >&2
+      if [[ "$last_action_type" == "new_user_prompt" ]]; then
       call_api
     fi
     conv_main_loop
   else # Piped output
     call_api
-    single_time_output
+    raw_output
   fi
 }
 
