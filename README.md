@@ -68,7 +68,7 @@ Settings: pls -h                                  # Show this help
           pls edit config                         # config pls and AI model via chat
 ```
 
-## Installation
+## To install
 
 - install `jq` if not installed already
 - run the follow script to install or update
@@ -77,9 +77,15 @@ curl -sSL https://raw.githubusercontent.com/cjccjj/pls/main/install.sh | bash
 ```
 - Export `OPENAI_API_KEY` or `GEMINI_API_KEY` in your shell config
 - Optional: install `glow` for prettier markdown output in chat
-- to edit config run `pls edit config`
-- to update run `pls update yourself`
-- to uninstall run
+
+## To config
+- To config and choose AI profile say `edit config` to pls or `nano ~/.pls/pls.conf`
+
+## To update
+- Say `update yourself` or use install script
+
+## to uninstall
+- run
 ```bash
 sudo rm /usr/local/bin/pls # remove the bin
 rm -rf ~/.pls # remove config file and chat history
