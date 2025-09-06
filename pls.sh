@@ -304,6 +304,7 @@ process_inputs() {
   # read both input
   [ ! -t 0 ] && piped_input="$(cat)"
   arg_input="$*"
+  exec < /dev/tty # redirect back to tty
 
   # process piped input
   if [[ -n "$piped_input" ]]; then
