@@ -166,7 +166,7 @@ apply_profile() {
 
 print_usage_and_exit() {
   cat >&2 <<EOF
-pls v0.55
+pls v0.56
 
 Usage:    pls [messages...]                       # Chat with an input
           > what is llm                           # Continue chat, q or empty input to quit
@@ -181,7 +181,7 @@ Pipe and Chain:
           pls name a dish | pls -p how to cook    # Chain commands and show piped input with -p
 
 Settings: pls -h                                  # Show this help
-          nano ~/.pls/pls.conf             # Choose AI model and change settings
+          pls edit config                         # config pls and AI model via chat
 EOF
   exit "${1:-0}"
 }
