@@ -23,13 +23,14 @@
 
 ## Tips for using `pls`
 
-- Use `cat`, `tail`, or any command **pipe** to feed input into `pls`.  
-- Give orders in **chat mode**, where you can refine your request as many times as needed until satisfied.  
-- Quit chat mode at any time to run any command you want, and simply pick it up again anywhere, anytime, by typing `pls`.  
-- Use AI for its **flexibility** to handle anything; for simple shell commands, run them yourself for **efficiency and safety**.  
-- For short context, just let AI do it directly; for large datasets, ask AI to **generate commands or scripts** to help you.  
+- Use `cat`, `tail`, or any command **pipe** to feed data into `pls`.
+- You can also feed "knowhow" like `your app --help | pls learn it`   
+- Give orders in chat mode, refine your request as many times until satisfied.  
+- Quit chat at any time to run any command you want, and pick it up again anywhere, anytime, by typing `pls`.  
+- Use AI for its **flexibility** to handle anything; for simple commands, run them yourself for **efficiency**.  
+- For short context, let AI do it directly; for large datasets, ask AI to generate commands or scripts for you to run.  
 - If not satisfied with anything, simply provide your feedback.
-- You can apply the workflow to command-line tasks like system administration, config file tweaking, log analysis, and script writing.  
+- You can apply the workflow to tasks like system administration, config file tweaking, log analysis, and script writing and testing.  
 - It will make your command-line work easier and more fun, while still keeping the traditional command-line style and feel.
   
 ## Key Capabilities
