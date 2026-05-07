@@ -69,16 +69,16 @@ history_file="$HOME/.pls/pls_hist.log"
 history_time_window_minutes=30
 history_max_records=30
 
-# Define your own AI profiles, openai and gemini for now
+# Define your own AI profiles, openai, gemini and deepseek
 [openai_1]
 provider="openai"
-model="gpt-4o"
+model="gpt-5-mini"
 base_url="https://api.openai.com/v1"
 env_key="OPENAI_API_KEY"
 
 [openai_2]
 provider="openai"
-model="gpt-4o-mini"
+model="gpt-5.1-codex-mini"
 base_url="https://api.openai.com/v1"
 env_key="OPENAI_API_KEY"
 
@@ -87,6 +87,12 @@ provider="gemini"
 model="gemini-2.5-flash"
 base_url="https://generativelanguage.googleapis.com/v1beta"
 env_key="GEMINI_API_KEY"
+
+[deepseek_1]
+provider="deepseek"
+model="deepseek-v4-flash"
+base_url="https://api.deepseek.com"
+env_key="DEEPSEEK_API_KEY"
 EOF
   fi
   # default values
@@ -136,7 +142,7 @@ apply_profile() {
   api_base_url="$(eval echo "\$profile__${p}__base_url")"
   api_env_key="$(eval echo "\$profile__${p}__env_key")"
   # Validate provider
-  if [[ "$api_provider" != "openai" && "$api_provider" != "gemini" ]]; then
+  if [[ "$api_provider" != "openai" && "$api_provider" != "gemini" && "$api_provider" != "deepseek" ]]; then
     echo "Error: Provider '$api_provider' for profile '$p' is not yet supported." >&2
     echo "$CONFIG_FILE" >&2
     exit 1
@@ -166,7 +172,7 @@ apply_profile() {
 
 print_usage_and_exit() {
   cat >&2 <<EOF
-pls v0.56
+pls v0.57
 
 Usage:    pls [messages...]                       # Chat with an input
           > what is llm                           # Continue chat, q or empty input to quit
@@ -259,7 +265,7 @@ read_from_history() {
   cutoff_epoch=$(($(date +%s) - history_time_window_minutes * 60))
   # use tail to avoid loading big history file
   case $api_provider in
-  openai)
+  openai | deepseek)
     tail -n $((history_max_records)) "$history_file" |
       jq -s \
         --argjson cutoff_epoch "$cutoff_epoch" \
@@ -276,6 +282,7 @@ read_from_history() {
           "parts": [{"text": .content}]
         })'
     ;;
+
   *)
     printf 'Unsupported API provider: %s\n' "$api_provider" >&2
     exit 1
@@ -430,6 +437,31 @@ call_api() {
     )
     ;;
 
+  deepseek)
+    endpoint="$api_base_url/chat/completions"
+    headers=(-H "Authorization: Bearer $api_key" -H "Content-Type: application/json")
+    # DeepSeek only supports json_object, not json_schema.
+    # Embed the output format instructions in the system prompt.
+    local deepseek_sys
+    deepseek_sys="${SYSTEM_INSTRUCTION}"$'\n\n'"You must output a single JSON object with exactly these fields: shell_command_requested (boolean), shell_command_explanation (string), shell_command (string), chat_response (string). Do not include any text outside the JSON object."
+    payload=$(
+      read_from_history | jq -n \
+        --arg model "$api_model" \
+        --arg sys "$deepseek_sys" \
+        --slurpfile history /dev/stdin \
+        --arg prompt "$user_prompt" \
+        '{
+          model:$model,
+          messages:(
+            [{role:"system",content:$sys}] +
+            $history[0] +
+            [{role:"user",content:$prompt}]
+          ),
+          response_format:{type:"json_object"}
+        }'
+    )
+    ;;
+
   *)
     echo "Unsupported provider: $api_provider" >&2
     exit 1
@@ -489,6 +521,22 @@ call_api() {
     shell_command_explanation=$(jq -r 'fromjson.shell_command_explanation' <<<"$msg")
     shell_command=$(jq -r 'fromjson.shell_command' <<<"$msg")
     chat_response=$(jq -r 'fromjson.chat_response' <<<"$msg")
+    ;;
+
+  deepseek)
+    local finish_reason
+    finish_reason=$(jq -r '.choices[0].finish_reason // empty' <<<"$http_body")
+    [[ $finish_reason == stop ]] || {
+      echo "DeepSeek response failed ($finish_reason)"
+      echo "$http_body"
+      exit 1
+    }
+    local msg
+    msg=$(jq '.choices[0].message.content // empty' <<<"$http_body")
+    shell_command_requested=$(jq -r 'fromjson.shell_command_requested // false' <<<"$msg")
+    shell_command_explanation=$(jq -r 'fromjson.shell_command_explanation // empty' <<<"$msg")
+    shell_command=$(jq -r 'fromjson.shell_command // empty' <<<"$msg")
+    chat_response=$(jq -r 'fromjson.chat_response // empty' <<<"$msg")
     ;;
   esac
 

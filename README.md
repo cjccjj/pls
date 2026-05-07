@@ -48,11 +48,11 @@
 - Inline command regeneration and editing  
 - Supports pipes and command chaining, clean output in piped mode  
 - Works on Linux and macOS  
-- Compatible with OpenAI API and Gemini API
+- Compatible with OpenAI API, Gemini API and DeepSeek API
 
 ## Usage
 ```
-pls v0.56
+pls v0.57
 
 Usage:    pls [messages...]                       # Chat with an input
           > what is llm                           # Continue chat, q or empty input to quit
@@ -77,7 +77,7 @@ Settings: pls -h                                  # Show this help
 ```bash
 curl -sSL https://raw.githubusercontent.com/cjccjj/pls/main/install.sh | bash
 ```
-- Export `OPENAI_API_KEY` or `GEMINI_API_KEY` in your shell config
+- Export `OPENAI_API_KEY`, `GEMINI_API_KEY` or `DEEPSEEK_API_KEY` in your shell config
 - Optional: install `glow` for prettier markdown output in chat
 
 ## To config
