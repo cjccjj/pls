@@ -72,19 +72,19 @@ history_max_records=30
 # Define your own AI profiles, openai and gemini for now
 [openai_1]
 provider="openai"
-model="gpt-4o"
+model="gpt-5-mini"
 base_url="https://api.openai.com/v1"
 env_key="OPENAI_API_KEY"
 
 [openai_2]
 provider="openai"
-model="gpt-4o-mini"
+model="gpt-5.4"
 base_url="https://api.openai.com/v1"
 env_key="OPENAI_API_KEY"
 
 [gemini_1]
 provider="gemini"
-model="gemini-2.5-flash"
+model="gemini-3-flash-preview"
 base_url="https://generativelanguage.googleapis.com/v1beta"
 env_key="GEMINI_API_KEY"
 EOF
