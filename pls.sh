@@ -441,9 +441,10 @@ call_api() {
     endpoint="$api_base_url/chat/completions"
     headers=(-H "Authorization: Bearer $api_key" -H "Content-Type: application/json")
     # DeepSeek only supports json_object, not json_schema.
-    # Embed the output format instructions in the system prompt.
+    # Embed the output format in the system prompt per DeepSeek recommendation:
+    # include the word "json" and provide an example format.
     local deepseek_sys
-    deepseek_sys="${SYSTEM_INSTRUCTION}"$'\n\n'"You must output a single JSON object with exactly these fields: shell_command_requested (boolean), shell_command_explanation (string), shell_command (string), chat_response (string). Do not include any text outside the JSON object."
+    deepseek_sys="${SYSTEM_INSTRUCTION}"$'\n\n'"You must respond in JSON format. Output a single JSON object exactly like this example: {\"shell_command_requested\":false,\"shell_command_explanation\":\"\",\"shell_command\":\"\",\"chat_response\":\"response text\"}. Do not include any text outside the JSON object."
     payload=$(
       read_from_history | jq -n \
         --arg model "$api_model" \
@@ -457,7 +458,8 @@ call_api() {
             $history[0] +
             [{role:"user",content:$prompt}]
           ),
-          response_format:{type:"json_object"}
+          response_format:{type:"json_object"},
+          thinking:{type:"disabled"}
         }'
     )
     ;;
@@ -532,11 +534,22 @@ call_api() {
       exit 1
     }
     local msg
-    msg=$(jq '.choices[0].message.content // empty' <<<"$http_body")
-    shell_command_requested=$(jq -r 'fromjson.shell_command_requested // false' <<<"$msg")
-    shell_command_explanation=$(jq -r 'fromjson.shell_command_explanation // empty' <<<"$msg")
-    shell_command=$(jq -r 'fromjson.shell_command // empty' <<<"$msg")
-    chat_response=$(jq -r 'fromjson.chat_response // empty' <<<"$msg")
+    msg=$(jq -r '.choices[0].message.content // ""' <<<"$http_body")
+    # DeepSeek json_object mode is not strict; model may return plain text
+    if [[ "$msg" == \{* ]]; then
+      shell_command_requested=$(jq -r '.shell_command_requested // false' <<<"$msg")
+      shell_command_explanation=$(jq -r '.shell_command_explanation // ""' <<<"$msg")
+      shell_command=$(jq -r '.shell_command // ""' <<<"$msg")
+      chat_response=$(jq -r '.chat_response // ""' <<<"$msg")
+    else
+      # Strip leading/trailing whitespace; fall back to plain text chat
+      local trimmed="${msg#"${msg%%[![:space:]]*}"}"
+      trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
+      shell_command_requested="false"
+      shell_command_explanation=""
+      shell_command=""
+      chat_response="${trimmed:-"(empty response from DeepSeek API)"}"
+    fi
     ;;
   esac
 
