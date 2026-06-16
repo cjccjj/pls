@@ -87,6 +87,12 @@ provider="gemini"
 model="gemini-3-flash-preview"
 base_url="https://generativelanguage.googleapis.com/v1beta"
 env_key="GEMINI_API_KEY"
+
+[deepseek_1]
+provider="deepseek"
+model="deepseek-v4-flash"
+base_url="https://api.deepseek.com/v1"
+env_key="DEEPSEEK_API_KEY"
 EOF
   fi
   # default values
@@ -136,7 +142,7 @@ apply_profile() {
   api_base_url="$(eval echo "\$profile__${p}__base_url")"
   api_env_key="$(eval echo "\$profile__${p}__env_key")"
   # Validate provider
-  if [[ "$api_provider" != "openai" && "$api_provider" != "gemini" ]]; then
+  if [[ "$api_provider" != "openai" && "$api_provider" != "gemini" && "$api_provider" != "deepseek" ]]; then
     echo "Error: Provider '$api_provider' for profile '$p' is not yet supported." >&2
     echo "$CONFIG_FILE" >&2
     exit 1
@@ -259,7 +265,7 @@ read_from_history() {
   cutoff_epoch=$(($(date +%s) - history_time_window_minutes * 60))
   # use tail to avoid loading big history file
   case $api_provider in
-  openai)
+  openai|deepseek)
     tail -n $((history_max_records)) "$history_file" |
       jq -s \
         --argjson cutoff_epoch "$cutoff_epoch" \
@@ -430,6 +436,45 @@ call_api() {
     )
     ;;
 
+  deepseek)
+    endpoint="https://api.deepseek.com/beta/chat/completions"
+    headers=(-H "Authorization: Bearer $api_key" -H "Content-Type: application/json")
+    payload=$(
+      read_from_history | jq -n \
+        --arg model "$api_model" \
+        --arg sys "$SYSTEM_INSTRUCTION" \
+        --slurpfile history /dev/stdin \
+        --arg prompt "$user_prompt" \
+        '{
+          model:$model,
+          messages:([{role:"system",content:$sys}] + $history[0] + [{role:"user",content:$prompt}]),
+          tools:[{
+            type:"function",
+            function:{
+              name:"respond",
+              strict:true,
+              description:"Respond to the user with either a shell command or a chat answer",
+              parameters:{
+                type:"object",
+                properties:{
+                  shell_command_requested:{type:"boolean",description:"Whether the user requested to run a shell command"},
+                  shell_command_explanation:{type:"string",description:"Brief plain-text explanation of the shell command"},
+                  shell_command:{type:"string",description:"The shell command to accomplish the task"},
+                  chat_response:{type:"string",description:"A clear and helpful general answer"}
+                },
+                required:["shell_command_requested","shell_command_explanation","shell_command","chat_response"],
+                additionalProperties:false
+              }
+            }
+          }],
+          tool_choice:{type:"function",function:{name:"respond"}},
+          stream:false,
+          max_tokens:4096,
+          thinking:{type:"disabled"}
+        }'
+    )
+    ;;
+
   *)
     echo "Unsupported provider: $api_provider" >&2
     exit 1
@@ -489,6 +534,16 @@ call_api() {
     shell_command_explanation=$(jq -r 'fromjson.shell_command_explanation' <<<"$msg")
     shell_command=$(jq -r 'fromjson.shell_command' <<<"$msg")
     chat_response=$(jq -r 'fromjson.chat_response' <<<"$msg")
+    ;;
+
+  deepseek)
+    local msg
+    msg=$(jq -r '.choices[0].message.tool_calls[0].function.arguments // empty' <<<"$http_body")
+    [[ -z "$msg" ]] && { echo "DeepSeek failed to produce a tool call" >&2; exit 1; }
+    shell_command_requested=$(jq -r '.shell_command_requested' <<<"$msg")
+    shell_command_explanation=$(jq -r '.shell_command_explanation' <<<"$msg")
+    shell_command=$(jq -r '.shell_command' <<<"$msg")
+    chat_response=$(jq -r '.chat_response' <<<"$msg")
     ;;
   esac
 
