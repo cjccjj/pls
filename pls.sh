@@ -55,6 +55,41 @@ Special cases in Shell Command Mode:
 EOF
 )
 
+ensure_provider_profiles() {
+  grep -q '^\[openai_1\]' "$CONFIG_FILE" || cat >>"$CONFIG_FILE" <<'EOF'
+
+[openai_1]
+provider="openai"
+model="gpt-5-mini"
+base_url="https://api.openai.com/v1"
+env_key="OPENAI_API_KEY"
+EOF
+  grep -q '^\[openai_2\]' "$CONFIG_FILE" || cat >>"$CONFIG_FILE" <<'EOF'
+
+[openai_2]
+provider="openai"
+model="gpt-5.4"
+base_url="https://api.openai.com/v1"
+env_key="OPENAI_API_KEY"
+EOF
+  grep -q '^\[gemini_1\]' "$CONFIG_FILE" || cat >>"$CONFIG_FILE" <<'EOF'
+
+[gemini_1]
+provider="gemini"
+model="gemini-3-flash-preview"
+base_url="https://generativelanguage.googleapis.com/v1beta"
+env_key="GEMINI_API_KEY"
+EOF
+  grep -q '^\[deepseek_1\]' "$CONFIG_FILE" || cat >>"$CONFIG_FILE" <<'EOF'
+
+[deepseek_1]
+provider="deepseek"
+model="deepseek-v4-flash"
+base_url="https://api.deepseek.com/beta"
+env_key="DEEPSEEK_API_KEY"
+EOF
+}
+
 load_and_apply_config() {
   if [[ ! -f "$CONFIG_FILE" ]]; then
     mkdir -p "$(dirname "$CONFIG_FILE")" && cat >"$CONFIG_FILE" <<'EOF'
@@ -91,9 +126,11 @@ env_key="GEMINI_API_KEY"
 [deepseek_1]
 provider="deepseek"
 model="deepseek-v4-flash"
-base_url="https://api.deepseek.com/v1"
+base_url="https://api.deepseek.com/beta"
 env_key="DEEPSEEK_API_KEY"
 EOF
+  else
+    ensure_provider_profiles
   fi
   # default values
   profile=""
