@@ -24,5 +24,8 @@ Thumbs.db
 # Archive (bash version, not tracked)
 archive/
 
+# Build output
+/dist/
+
 # Dev artifacts
 Implementation_Plan.md

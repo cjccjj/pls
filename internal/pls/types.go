@@ -2,8 +2,9 @@ package pls
 
 import "time"
 
+var Version = "dev"
+
 const (
-	Version = "0.1.0"
 
 	defaultProfile              = "openai_1"
 	defaultTimeoutSeconds       = 60
