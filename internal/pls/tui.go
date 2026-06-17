@@ -1,0 +1,72 @@
+package pls
+
+import (
+	"fmt"
+	"io"
+	"time"
+)
+
+const (
+	colorReset  = "\033[0m"
+	colorGreen  = "\033[32m"
+	colorGrey   = "\033[90m"
+	colorCyan   = "\033[36m"
+	colorYellow = "\033[33m"
+)
+
+const spinnerDelay = 200 * time.Millisecond
+
+var spinnerFrames = []string{"⠷", "⠯", "⠟", "⠻", "⠽", "⠾"}
+
+func startSpinner(w io.Writer, model string) (stop func()) {
+	done := make(chan struct{})
+	exited := make(chan struct{})
+	go func() {
+		defer close(exited)
+		i := 0
+		for {
+			select {
+			case <-done:
+				return
+			default:
+				fmt.Fprintf(w, "\r%s%s%s %s%s:%s", colorGreen, spinnerFrames[i%len(spinnerFrames)], colorReset, colorGrey, model, colorReset)
+				i++
+			}
+			select {
+			case <-done:
+				return
+			case <-time.After(spinnerDelay):
+			}
+		}
+	}()
+	return func() {
+		close(done)
+		<-exited
+		fmt.Fprint(w, "\r\033[K")
+	}
+}
+
+func formatMenu(items string) string {
+	var s string
+	s += colorGrey + "( " + colorReset
+	if containsRune(items, 'r') {
+		s += colorCyan + "r ⏎" + colorReset + colorGrey + " : run cmd | " + colorReset
+	}
+	if containsRune(items, 'e') {
+		s += colorCyan + "e ⏎" + colorReset + colorGrey + " : edit cmd | " + colorReset
+	}
+	if containsRune(items, 'q') {
+		s += colorCyan + "q ⏎" + colorReset + colorGrey + " : quit | " + colorReset
+	}
+	s += colorCyan + "... ⏎" + colorReset + colorGrey + " : chat )" + colorReset
+	return s
+}
+
+func containsRune(s string, r rune) bool {
+	for _, c := range s {
+		if c == r {
+			return true
+		}
+	}
+	return false
+}

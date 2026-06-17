@@ -1,1 +1,28 @@
-test*
+# Binary
+/pls
+*.exe
+*.exe~
+
+# Test
+*.test
+*.out
+
+# Go
+vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Archive (bash version, not tracked)
+archive/
+
+# Dev artifacts
+Implementation_Plan.md
