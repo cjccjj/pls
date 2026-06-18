@@ -41,10 +41,6 @@ func TestOpenAIPayloadIncludesHistoryAndSchema(t *testing.T) {
 	if format["type"] != "json_schema" {
 		t.Fatalf("format = %#v", format)
 	}
-	reasoning := payload["reasoning"].(map[string]any)
-	if reasoning["effort"] != "minimal" {
-		t.Fatalf("reasoning = %#v", reasoning)
-	}
 }
 
 func TestOpenAICreateResponseParsesStructuredOutput(t *testing.T) {

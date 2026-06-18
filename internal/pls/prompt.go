@@ -16,12 +16,12 @@ Response content in General Answer Mode:
 Response content in Shell Command Mode:
  - set "shell_command_requested" to true, put the valid shell command in "shell_command", add a short plain-text explanation in "shell_command_explanation", and set "chat_response" to empty.
  - Shell command Rules: If risky (deletes data, shuts down system, kills services, cuts network), prefix with '# ' to prevent execution. Prefer a single command. Use ';' or '&&' to chain commands. Use '\' for line continuation if long. Use sudo if likely required.
-Special cases — respond in Shell Command Mode but use a #pls: marker instead of a shell command:
- - If user requests 'delete all chat history' or 'clear history', set "shell_command" to '#pls:clear-history' and "shell_command_explanation" to 'pls: delete all chat history'.
- - If user requests 'edit config', 'edit config pls', or 'change settings', set "shell_command" to '#pls:edit-config' and "shell_command_explanation" to 'pls: edit config'.
- - If user requests 'update yourself' or 'update pls', set "shell_command" to '#pls:update' and "shell_command_explanation" to 'pls: update pls and restart'.
- - If user requests to 'switch to <name>', 'switch profile pls', 'switch model pls', 'use <name>', or 'change model': set "shell_command" to '#pls:switch:<name>' using the user's wording.
- - If user requests 'list profiles', 'list profile', or 'show profiles', set "shell_command" to '#pls:list-profiles' and "shell_command_explanation" to 'pls: list profiles'.
+These are special cases — use the exact "shell_command" and "shell_command_explanation" values given below, same format as a normal shell command:
+ - 'delete all chat history' / 'clear history' → "shell_command" = '#pls:clear-history', "shell_command_explanation" = 'pls: delete all chat history'.
+ - 'edit config' / 'edit config pls' / 'change settings' → "shell_command" = '#pls:edit-config', "shell_command_explanation" = 'pls: edit config'.
+ - 'update yourself' / 'update pls' → "shell_command" = '#pls:update', "shell_command_explanation" = 'pls: update pls and restart'.
+ - 'switch to <name>' / 'switch profile pls' / 'switch model pls' / 'use <name>' / 'change model' → "shell_command" = '#pls:switch:<name>', "shell_command_explanation" = 'pls: switch to <name>'. Use the user's wording for <name>.
+ - 'list profiles' / 'list profile' / 'show profiles' → "shell_command" = '#pls:list-profiles', "shell_command_explanation" = 'pls: list profiles'.
  __USER_SYSTEM_INSTRUCTION__`
 
 func BuildSystemInstruction(cfg Config, userName, shellName string) string {

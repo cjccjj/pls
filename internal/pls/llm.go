@@ -173,9 +173,6 @@ func (c Client) payload(prompt string, stream bool) (map[string]any, error) {
 		"text": map[string]any{
 			"format": responseFormatSchema(),
 		},
-		"reasoning": map[string]any{
-			"effort": "minimal",
-		},
 	}
 	if stream {
 		payload["stream"] = true
