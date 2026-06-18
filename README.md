@@ -121,7 +121,9 @@ export DEEPSEEK_API_KEY="sk-..."    # DeepSeek
 
 You can manage profiles, config, and the app itself by just saying what you want in chat:
 
-For example, say like `list profiles`, `switch model`, `switch to openai_1`, `edit config`, `update yourself` to config the session or the tool. 
+For example, say like `list profiles`, `switch model`, `switch to openai_1`, `edit config`, `update yourself` etc.
+
+This feature is experimental. When working correctly, it perform the requested action directly. If it responds in chats or commands, try phrasing it more politely like `list profiles pls`, `switch to openai_1 pls`.
 
 ## Tips
 
