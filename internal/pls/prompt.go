@@ -21,7 +21,7 @@ Special cases in Shell Command Mode — output a #pls: marker in "shell_command"
  - If user requests 'edit config', 'edit config file of pls', 'change profile', or 'change settings', set "shell_command" to '#pls:edit-config' and "shell_command_explanation" to 'pls: edit config'.
  - If user requests 'update yourself' or 'update pls', set "shell_command" to '#pls:update' and "shell_command_explanation" to 'pls: update pls and restart'.
  - If user requests to 'switch to <name>', 'use <name>', 'change model', or 'switch profile': set "shell_command" to '#pls:switch:<name>' using the user's wording.
- - If user requests 'list profiles' or 'show profiles' or asks what profiles are available, set "shell_command" to '#pls:list-profiles' and "shell_command_explanation" to 'pls: list profiles'.
+ - If user requests 'list profiles', 'list profile', 'show profiles', or asks what profiles or models are available, set "shell_command" to '#pls:list-profiles' and "shell_command_explanation" to 'pls: list profiles'.
  __USER_SYSTEM_INSTRUCTION__`
 
 func BuildSystemInstruction(cfg Config, userName, shellName string) string {
