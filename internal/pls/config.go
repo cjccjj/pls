@@ -255,6 +255,52 @@ func expandHome(value, home string) string {
 	return value
 }
 
+func readSectionNames(path string) (map[string]bool, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	names := make(map[string]bool)
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
+			section := strings.TrimSpace(line[1 : len(line)-1])
+			if section != "Global" {
+				names[section] = true
+			}
+		}
+	}
+	return names, scanner.Err()
+}
+
+func PersistProfile(configPath, profileName string) error {
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return err
+	}
+	lines := strings.Split(string(data), "\n")
+	inGlobal := false
+	var out strings.Builder
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
+			inGlobal = trimmed == "[Global]"
+		}
+		if inGlobal && strings.HasPrefix(trimmed, "profile=") {
+			out.WriteString("profile=\"" + profileName + "\"\n")
+			continue
+		}
+		out.WriteString(line + "\n")
+	}
+	result := strings.TrimRight(out.String(), "\n")
+	if !strings.HasSuffix(string(data), "\n") {
+		return os.WriteFile(configPath, []byte(result), 0o600)
+	}
+	return os.WriteFile(configPath, []byte(result+"\n"), 0o600)
+}
+
 const defaultConfigText = `[Global]
 profile="openai_1"
 # Experimental. Teach AI to use your personalized shell command.

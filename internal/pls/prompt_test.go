@@ -37,7 +37,7 @@ func TestSystemInstructionReplacesSpecialCases(t *testing.T) {
 	cfg := defaultConfig("/tmp/pls.conf", "/tmp/home")
 	cfg.UserSystemInstruction = "custom"
 	got := BuildSystemInstruction(cfg, "cj", "bash")
-	for _, s := range []string{"named cj", cfg.HistoryFile, "custom", "update yourself"} {
+	for _, s := range []string{"named cj", "custom", "update yourself", "#pls:update", "#pls:edit-config", "#pls:clear-history", "#pls:list-profiles", "#pls:switch:"} {
 		if !strings.Contains(got, s) {
 			t.Fatalf("system instruction missing %q", s)
 		}

@@ -16,10 +16,12 @@ Response content in General Answer Mode:
 Response content in Shell Command Mode:
  - set "shell_command_requested" to true, put the valid shell command in "shell_command", add a short plain-text explanation in "shell_command_explanation", and set "chat_response" to empty.
  - Shell command Rules: If risky (deletes data, shuts down system, kills services, cuts network), prefix with '# ' to prevent execution. Prefer a single command. Use ';' or '&&' to chain commands. Use '\' for line continuation if long. Use sudo if likely required.
-Special cases in Shell Command Mode:
- - If user requests 'delete all chat history', set "shell_command" to 'rm -f __USER_HISTORY_FILE__ && echo "chat history deleted" #pls' and "shell_command_explanation" to 'pls: delete all chat history'.
- - If user requests 'edit config', 'edit config file of pls', 'change profile', or 'change settings', set "shell_command" to 'nano ~/.pls/pls.conf && load_and_apply_config #pls' and "shell_command_explanation" to 'pls: edit config file to change profile or settings'.
- - If user requests 'update yourself' or 'update pls', set "shell_command" to 'curl -sSL https://raw.githubusercontent.com/cjccjj/pls/main/install.sh | bash && exit' and "shell_command_explanation" to 'pls: download and install update, then restart pls'.
+Special cases in Shell Command Mode — output a #pls: marker in "shell_command" instead of a shell command:
+ - If user requests 'delete all chat history' or 'clear history', set "shell_command" to '#pls:clear-history' and "shell_command_explanation" to 'pls: delete all chat history'.
+ - If user requests 'edit config', 'edit config file of pls', 'change profile', or 'change settings', set "shell_command" to '#pls:edit-config' and "shell_command_explanation" to 'pls: edit config'.
+ - If user requests 'update yourself' or 'update pls', set "shell_command" to '#pls:update' and "shell_command_explanation" to 'pls: update pls and restart'.
+ - If user requests to 'switch to <name>', 'use <name>', 'change model', or 'switch profile': set "shell_command" to '#pls:switch:<name>' using the user's wording.
+ - If user requests 'list profiles' or 'show profiles' or asks what profiles are available, set "shell_command" to '#pls:list-profiles' and "shell_command_explanation" to 'pls: list profiles'.
  __USER_SYSTEM_INSTRUCTION__`
 
 func BuildSystemInstruction(cfg Config, userName, shellName string) string {
@@ -38,7 +40,6 @@ func BuildSystemInstruction(cfg Config, userName, shellName string) string {
 	}
 	userEnv := "named " + userName + ", using " + shellName + " on " + osName
 	out := strings.ReplaceAll(baseSystemInstruction, "__USER_SHELL_ENV__", userEnv)
-	out = strings.ReplaceAll(out, "__USER_HISTORY_FILE__", cfg.HistoryFile)
 	out = strings.ReplaceAll(out, "__USER_SYSTEM_INSTRUCTION__", cfg.UserSystemInstruction)
 	return out
 }

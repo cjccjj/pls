@@ -3,6 +3,8 @@ package pls
 import (
 	"fmt"
 	"io"
+	"sort"
+	"strings"
 	"time"
 )
 
@@ -69,4 +71,24 @@ func containsRune(s string, r rune) bool {
 		}
 	}
 	return false
+}
+
+func formatProfileList(profiles map[string]Profile, env map[string]string) string {
+	var names []string
+	for name := range profiles {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	var sb strings.Builder
+	for _, name := range names {
+		p := profiles[name]
+		sb.WriteString(colorCyan + name + colorReset)
+		sb.WriteString("  " + p.Provider + "  " + p.Model)
+		if env[p.EnvKey] != "" {
+			sb.WriteString("  " + colorGreen + "KEY" + colorReset)
+		}
+		sb.WriteString("\n")
+	}
+	sb.WriteString("\n" + colorGrey + `Say "switch to <name>" to change.` + colorReset)
+	return sb.String()
 }

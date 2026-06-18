@@ -76,7 +76,7 @@ func (a *App) Run(ctx context.Context, args []string) error {
 		if prompt == "" {
 			return fmt.Errorf("no input provided")
 		}
-		resp, streamed, err := a.createResponseStreaming(ctx, client, prompt)
+		resp, streamed, err := a.createResponseStreaming(ctx, &client, prompt)
 		if err != nil {
 			return err
 		}
@@ -96,10 +96,10 @@ func (a *App) Run(ctx context.Context, args []string) error {
 		}
 		return nil
 	}
-	return a.interactive(ctx, client, history, prompt, truncated)
+	return a.interactive(ctx, &client, &cfg, history, prompt, truncated)
 }
 
-func (a *App) interactive(ctx context.Context, client Client, history HistoryStore, prompt string, truncated bool) error {
+func (a *App) interactive(ctx context.Context, client *Client, cfg *Config, history HistoryStore, prompt string, truncated bool) error {
 	readerFile := a.in
 	if !isTerminalFile(readerFile) {
 		tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
@@ -124,7 +124,11 @@ func (a *App) interactive(ctx context.Context, client Client, history HistorySto
 
 	for {
 		if action == "new_assistant_response" {
-			if resp.ShellCommandRequested {
+			if resp.ShellCommandRequested && strings.HasPrefix(resp.ShellCommand, "#pls:") {
+				a.handleInternalAction(resp.ShellCommand, resp.ShellCommandExplanation, client, cfg)
+				_ = history.Add(prompt, "pls: "+resp.ShellCommandExplanation)
+				action = "chat_new_response"
+			} else if resp.ShellCommandRequested {
 				action = "cmd_new_response"
 			} else {
 				action = "chat_new_response"
@@ -204,7 +208,7 @@ func (a *App) interactive(ctx context.Context, client Client, history HistorySto
 	}
 }
 
-func (a *App) createResponseStreaming(ctx context.Context, client Client, prompt string) (ShellHelperResponse, bool, error) {
+func (a *App) createResponseStreaming(ctx context.Context, client *Client, prompt string) (ShellHelperResponse, bool, error) {
 	useTTY := isTerminalWriter(a.out)
 	var spinnerStop func()
 	var mdRenderer *markdown.Renderer
@@ -214,6 +218,8 @@ func (a *App) createResponseStreaming(ctx context.Context, client Client, prompt
 	}
 	streamed := false
 	var seenExplanation bool
+	var shellCmdBuf strings.Builder
+	shellCmdHidden := false
 
 	resp, err := client.CreateResponse(ctx, prompt, StreamHooks{OnDelta: func(field, content string) {
 		if !streamed {
@@ -236,14 +242,27 @@ func (a *App) createResponseStreaming(ctx context.Context, client Client, prompt
 				fmt.Fprint(a.out, colorGrey+content+colorReset)
 			}
 		case "shell_command":
-			if useTTY {
-				if seenExplanation {
-					seenExplanation = false
-					fmt.Fprintf(a.out, "\n%s# Command:%s\n", colorGrey, colorReset)
+			if !shellCmdHidden {
+				shellCmdBuf.WriteString(content)
+				buf := shellCmdBuf.String()
+				if strings.HasPrefix(buf, "#pls:") {
+					shellCmdHidden = true
+					shellCmdBuf.Reset()
+					return
 				}
-				fmt.Fprint(a.out, colorYellow+content+colorReset)
-			} else {
-				fmt.Fprint(a.out, content)
+				if len(buf) < 5 && strings.HasPrefix("#pls:", buf) {
+					return
+				}
+				if useTTY {
+					if seenExplanation {
+						seenExplanation = false
+						fmt.Fprintf(a.out, "\n%s# Command:%s\n", colorGrey, colorReset)
+					}
+					fmt.Fprint(a.out, colorYellow+buf+colorReset)
+				} else {
+					fmt.Fprint(a.out, buf)
+				}
+				shellCmdBuf.Reset()
 			}
 		case "chat_response":
 			if useTTY {
@@ -256,6 +275,16 @@ func (a *App) createResponseStreaming(ctx context.Context, client Client, prompt
 	if mdRenderer != nil {
 		mdRenderer.Close()
 	}
+	if !shellCmdHidden && shellCmdBuf.Len() > 0 {
+		if useTTY {
+			if seenExplanation {
+				fmt.Fprintf(a.out, "\n%s# Command:%s\n", colorGrey, colorReset)
+			}
+			fmt.Fprint(a.out, colorYellow+shellCmdBuf.String()+colorReset)
+		} else {
+			fmt.Fprint(a.out, shellCmdBuf.String())
+		}
+	}
 	if !streamed {
 		if useTTY {
 			spinnerStop()
@@ -264,6 +293,106 @@ func (a *App) createResponseStreaming(ctx context.Context, client Client, prompt
 		fmt.Fprintln(a.out)
 	}
 	return resp, streamed, err
+}
+
+func (a *App) handleInternalAction(marker, explanation string, client *Client, cfg *Config) {
+	switch {
+	case marker == "#pls:update":
+		fmt.Fprintf(a.out, "\n%sUpdating pls...%s\n", colorGrey, colorReset)
+		shell := a.env["SHELL"]
+		if shell == "" {
+			shell = "/bin/sh"
+		}
+		cmd := exec.Command(shell, "-c", "curl -sSL https://raw.githubusercontent.com/cjccjj/pls/main/install.sh | bash")
+		cmd.Stdin = a.in
+		cmd.Stdout = a.out
+		cmd.Stderr = a.errOut
+		cmd.Run()
+		os.Exit(0)
+
+	case marker == "#pls:edit-config":
+		editor := a.env["EDITOR"]
+		if editor == "" {
+			editor = "nano"
+		}
+		cmd := exec.Command(editor, cfg.Path)
+		cmd.Stdin = a.in
+		cmd.Stdout = a.out
+		cmd.Stderr = a.errOut
+		cmd.Run()
+		a.reloadClient(cfg, client)
+		fmt.Fprintf(a.out, "%sConfig reloaded.%s\n", colorGrey, colorReset)
+
+	case marker == "#pls:clear-history":
+		os.Remove(cfg.HistoryFile)
+		fmt.Fprintf(a.out, "%sChat history deleted.%s\n", colorGrey, colorReset)
+
+	case marker == "#pls:list-profiles":
+		fmt.Fprintf(a.out, "%s\n", formatProfileList(a.loadProfilesFromDisk(cfg), a.env))
+
+	default:
+		if strings.HasPrefix(marker, "#pls:switch:") {
+			name := marker[len("#pls:switch:"):]
+			if name == "" {
+				fmt.Fprintf(a.out, "%s\n", formatProfileList(a.loadProfilesFromDisk(cfg), a.env))
+				return
+			}
+			p, ok := cfg.Profiles[name]
+			if !ok {
+				fmt.Fprintf(a.out, "%sProfile %q not found.%s\n\n", colorGrey, name, colorReset)
+				fmt.Fprintf(a.out, "%s\n", formatProfileList(a.loadProfilesFromDisk(cfg), a.env))
+				return
+			}
+			if a.env[p.EnvKey] == "" {
+				fmt.Fprintf(a.out, "%sNo API key for profile %q (%s not set).%s\n\n", colorGrey, name, p.EnvKey, colorReset)
+				fmt.Fprintf(a.out, "%s\n", formatProfileList(a.loadProfilesFromDisk(cfg), a.env))
+				return
+			}
+			if err := PersistProfile(cfg.Path, name); err != nil {
+				fmt.Fprintf(a.out, "%sFailed to persist profile: %v%s\n", colorGrey, err, colorReset)
+				return
+			}
+			a.reloadClient(cfg, client)
+			fmt.Fprintf(a.out, "%sSwitched to %s.%s\n", colorGrey, colorGreen+name+colorReset, colorReset)
+			return
+		}
+		fmt.Fprintf(a.out, "%sUnknown action.%s\n", colorGrey, colorReset)
+	}
+}
+
+func (a *App) reloadClient(cfg *Config, client *Client) {
+	newCfg, err := LoadConfig(a.env)
+	if err != nil {
+		fmt.Fprintf(a.out, "\n%sConfig reload failed: %v%s\n", colorGrey, err, colorReset)
+		return
+	}
+	newProfile, err := newCfg.ActiveProfile(a.env)
+	if err != nil {
+		fmt.Fprintf(a.out, "\n%sProfile error: %v%s\n", colorGrey, err, colorReset)
+		return
+	}
+	*cfg = newCfg
+	client.Config = newCfg
+	client.Profile = newProfile
+	client.System = BuildSystemInstruction(newCfg, a.env["USER"], filepath.Base(a.env["SHELL"]))
+}
+
+func (a *App) loadProfilesFromDisk(fallback *Config) map[string]Profile {
+	freshCfg, err := LoadConfig(a.env)
+	if err != nil {
+		return fallback.Profiles
+	}
+	rawSections, err := readSectionNames(freshCfg.Path)
+	if err != nil {
+		return fallback.Profiles
+	}
+	result := make(map[string]Profile)
+	for name, p := range freshCfg.Profiles {
+		if rawSections[name] {
+			result[name] = p
+		}
+	}
+	return result
 }
 
 func (a *App) showMenu(items string, truncated bool) {
