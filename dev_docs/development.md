@@ -9,7 +9,7 @@
 | Repo | `github.com/cjccjj/pls` |
 | Module | `github.com/cjccjj/pls` |
 | Go version | 1.25 |
-| Binary size | ~6.1 MB stripped, ~2.0 MB UPX-compressed |
+| Binary size | ~6.1 MB stripped, ~2.0 MB UPX-compressed (linux/darwin) |
 | Dependencies | `readline` (pre-filled line editing), `mdflow` (Markdown-to-ANSI, pure stdlib) |
 | Tests | 22 passing in `internal/pls/` |
 | Version | Set at build via ldflags (`v0.1.0` on tagged releases, `dev` otherwise) |
@@ -22,7 +22,7 @@ cd pls
 
 make build          # build binary (stripped, static, version injected)
 make test           # run all tests
-make release        # cross-compile linux/amd64 + arm64 to dist/
+make release        # cross-compile linux/amd64, linux/arm64, darwin/arm64 to dist/
 make release-upx    # same + UPX compress
 ```
 
@@ -40,7 +40,7 @@ pls/
 │   ├── history.go               # HistoryStore: JSONL append + time-window/max-record filter
 │   ├── history_test.go          # History write + filter tests
 │   ├── llm.go                   # Client, provider dispatch, payload/parse for all 3 providers
-│   ├── openai_test.go           # Payload, parse, stream tests for all 3 providers (fake SSE)
+│   ├── llm_test.go               # Payload, parse, stream tests for all 3 providers (fake SSE)
 │   ├── prompt.go                # BuildSystemInstruction, BuildPrompt, sanitizeInput
 │   ├── prompt_test.go           # Prompt + system instruction tests
 │   ├── stream_json.go           # fieldStreamer: partial-JSON progressive streaming
@@ -53,7 +53,7 @@ pls/
 ├── LICENSE (MIT)
 ├── .gitignore
 └── .github/workflows/
-    └── release.yaml             # Builds linux/amd64 + arm64 on tag push, UPX compresses, creates release
+    └── release.yaml             # Builds linux/amd64, linux/arm64, darwin/arm64 on tag push, UPX compresses, creates release
 ```
 
 Legacy bash version lives locally in `archive/bash/` (gitignored).
@@ -67,8 +67,8 @@ Legacy bash version lives locally in `archive/bash/` (gitignored).
 | `make build` | `CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X ...Version=..." -o pls ./cmd/pls` |
 | `make build-upx` | build + `upx --best --lzma pls` (requires UPX installed) |
 | `make test` | `go test ./...` |
-| `make release` | Cross-compile linux/amd64 + arm64 to `dist/` |
-| `make release-upx` | release + UPX compress both binaries |
+| `make release` | Cross-compile linux/amd64, linux/arm64, darwin/arm64 to `dist/` |
+| `make release-upx` | release + UPX compress all binaries |
 
 ### Version injection
 
@@ -85,16 +85,16 @@ Legacy bash version lives locally in `archive/bash/` (gitignored).
 
 File: `.github/workflows/release.yaml`
 
-Triggers on `v*` tag push. Two jobs:
+Triggers on `v*` tag push or `workflow_dispatch`. Two jobs:
 
-1. **build** (matrix: amd64, arm64) — checkouts, sets up Go 1.25, installs UPX via apt, builds with `-trimpath -s -w`, UPX compresses, generates SHA256
+1. **build** (matrix: linux/amd64, linux/arm64, darwin/arm64) — checkouts, sets up Go 1.25, downloads UPX 5.2.0, builds with `-trimpath -s -w`, UPX compresses (with `--force-macos` for darwin), generates SHA256
 2. **release** — collects artifacts, creates GitHub release via `softprops/action-gh-release`
 
-Result: `pls-linux-amd64` (~2.0 MB) and `pls-linux-arm64` (~1.7 MB) with `.sha256` files.
+Result: `pls-linux-amd64`, `pls-linux-arm64`, `pls-darwin-arm64` (~2.0 MB each UPX-compressed) with `.sha256` files.
 
 ### install.sh
 
-Downloads `pls-$(uname -s)-$(uname -m)` from `https://github.com/cjccjj/pls/releases/latest/download/` and copies to `/usr/local/bin/pls`. Uses sudo if needed. Linux-only currently.
+Downloads `pls-$(uname -s)-$(uname -m)` from `https://github.com/cjccjj/pls/releases/latest/download/` and copies to `/usr/local/bin/pls`. Uses sudo if needed. Supports linux (amd64, arm64) and macOS (arm64 Apple Silicon).
 
 ---
 

@@ -8,21 +8,27 @@ This Go version adds **streaming output** with **native Markdown rendering**, re
 
 ## Install
 
-**Option 1: Install script (Linux)**
+**Option 1: Install script (Linux / macOS)**
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/cjccjj/pls/main/install.sh | bash
 ```
 
-Downloads the latest binary to `/usr/local/bin/pls`.
+Downloads the latest binary to `/usr/local/bin/pls`. Supports linux (amd64, arm64) and macOS (arm64 Apple Silicon).
 
 **Option 2: Download binary**
 
-Pick your architecture from the [releases page](https://github.com/cjccjj/pls/releases), then:
+Pick your platform from the [releases page](https://github.com/cjccjj/pls/releases), then:
 
 ```bash
+# Linux
 chmod +x pls-linux-amd64
 sudo cp pls-linux-amd64 /usr/local/bin/pls
+
+# macOS
+chmod +x pls-darwin-arm64
+xattr -dr com.apple.quarantine pls-darwin-arm64   # macOS may quarantine the download
+sudo cp pls-darwin-arm64 /usr/local/bin/pls
 ```
 
 **Option 3: Go install**
@@ -36,7 +42,7 @@ Requires Go 1.25+.
 ## Usage
 
 ```
-pls v0.1.0
+pls
 
 Usage:    pls [messages...]                # Chat with an input
           > what is llm                    # Continue chat, q or empty input to quit
