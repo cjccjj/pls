@@ -25,7 +25,7 @@ release:
 release-upx: release
 	upx --best --lzma dist/$(APP)-linux-amd64
 	upx --best --lzma dist/$(APP)-linux-arm64
-	upx --best --lzma dist/$(APP)-darwin-arm64
+	upx --best --lzma --force-macos dist/$(APP)-darwin-arm64
 	@ls -lh dist/
 
 clean:
