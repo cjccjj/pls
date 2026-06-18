@@ -29,6 +29,7 @@ jobs:
           go-version: '1.25'
 
       - name: Install UPX
+        if: matrix.os != 'darwin'
         run: |
           curl -fsSL https://github.com/upx/upx/releases/download/v5.2.0/upx-5.2.0-amd64_linux.tar.xz -o upx.tar.xz
           tar -xf upx.tar.xz
@@ -47,8 +48,9 @@ jobs:
             -o pls-${{ matrix.os }}-${{ matrix.arch }} ./cmd/pls
 
       - name: Compress
+        if: matrix.os != 'darwin'
         run: |
-          upx --best --lzma --force-macos pls-${{ matrix.os }}-${{ matrix.arch }}
+          upx --best --lzma pls-${{ matrix.os }}-${{ matrix.arch }}
           ls -lh pls-${{ matrix.os }}-${{ matrix.arch }}
 
       - name: SHA256
