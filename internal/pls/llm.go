@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-type OpenAIClient struct {
+type Client struct {
 	HTTPClient *http.Client
 	Profile    Profile
 	Config     Config
@@ -25,7 +25,7 @@ type StreamHooks struct {
 	OnDelta func(field, content string)
 }
 
-func (c OpenAIClient) CreateResponse(ctx context.Context, prompt string, hooks StreamHooks) (ShellHelperResponse, error) {
+func (c Client) CreateResponse(ctx context.Context, prompt string, hooks StreamHooks) (ShellHelperResponse, error) {
 	switch c.Profile.Provider {
 	case "deepseek":
 		return c.createDeepSeekResponse(ctx, prompt, hooks)
@@ -36,7 +36,7 @@ func (c OpenAIClient) CreateResponse(ctx context.Context, prompt string, hooks S
 	}
 }
 
-func (c OpenAIClient) createOpenAIResponse(ctx context.Context, prompt string, hooks StreamHooks) (ShellHelperResponse, error) {
+func (c Client) createOpenAIResponse(ctx context.Context, prompt string, hooks StreamHooks) (ShellHelperResponse, error) {
 	payload, err := c.payload(prompt, hooks.OnDelta != nil)
 	if err != nil {
 		return ShellHelperResponse{}, err
@@ -66,7 +66,7 @@ func (c OpenAIClient) createOpenAIResponse(ctx context.Context, prompt string, h
 	return parseOpenAIResponse(resp.Body)
 }
 
-func (c OpenAIClient) createDeepSeekResponse(ctx context.Context, prompt string, hooks StreamHooks) (ShellHelperResponse, error) {
+func (c Client) createDeepSeekResponse(ctx context.Context, prompt string, hooks StreamHooks) (ShellHelperResponse, error) {
 	stream := hooks.OnDelta != nil
 	payload, err := c.deepseekPayload(prompt, stream)
 	if err != nil {
@@ -97,7 +97,7 @@ func (c OpenAIClient) createDeepSeekResponse(ctx context.Context, prompt string,
 	return parseDeepSeekResponse(resp.Body)
 }
 
-func (c OpenAIClient) createGeminiResponse(ctx context.Context, prompt string, hooks StreamHooks) (ShellHelperResponse, error) {
+func (c Client) createGeminiResponse(ctx context.Context, prompt string, hooks StreamHooks) (ShellHelperResponse, error) {
 	payload, err := c.geminiPayload(prompt)
 	if err != nil {
 		return ShellHelperResponse{}, err
@@ -139,7 +139,7 @@ func requestContext(parent context.Context, timeoutSeconds int) (context.Context
 	return context.WithTimeout(parent, timeout)
 }
 
-func (c OpenAIClient) doRequest(ctx context.Context, endpoint string, body []byte, headers map[string]string, stream bool) (*http.Response, error) {
+func (c Client) doRequest(ctx context.Context, endpoint string, body []byte, headers map[string]string, stream bool) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
@@ -157,7 +157,7 @@ func (c OpenAIClient) doRequest(ctx context.Context, endpoint string, body []byt
 	return httpClient.Do(req)
 }
 
-func (c OpenAIClient) payload(prompt string, stream bool) (map[string]any, error) {
+func (c Client) payload(prompt string, stream bool) (map[string]any, error) {
 	history, err := c.History.Recent(c.Config.HistoryMaxRecords, c.Config.HistoryTimeWindowMinutes)
 	if err != nil {
 		return nil, err
@@ -285,7 +285,7 @@ func responseFormatSchema() map[string]any {
 
 // --- DeepSeek ---
 
-func (c OpenAIClient) deepseekPayload(prompt string, stream bool) (map[string]any, error) {
+func (c Client) deepseekPayload(prompt string, stream bool) (map[string]any, error) {
 	history, err := c.History.Recent(c.Config.HistoryMaxRecords, c.Config.HistoryTimeWindowMinutes)
 	if err != nil {
 		return nil, err
@@ -396,7 +396,7 @@ func parseDeepSeekStream(r io.Reader, hooks StreamHooks) (ShellHelperResponse, e
 
 // --- Gemini ---
 
-func (c OpenAIClient) geminiPayload(prompt string) (map[string]any, error) {
+func (c Client) geminiPayload(prompt string) (map[string]any, error) {
 	history, err := c.History.Recent(c.Config.HistoryMaxRecords, c.Config.HistoryTimeWindowMinutes)
 	if err != nil {
 		return nil, err

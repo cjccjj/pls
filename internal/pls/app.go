@@ -65,7 +65,7 @@ func (a *App) Run(ctx context.Context, args []string) error {
 		MaxInputLength: cfg.MaxInputLength,
 	})
 	history := HistoryStore{Path: cfg.HistoryFile}
-	client := OpenAIClient{
+	client := Client{
 		Profile: profile,
 		Config:  cfg,
 		System:  BuildSystemInstruction(cfg, a.env["USER"], filepath.Base(a.env["SHELL"])),
@@ -99,7 +99,7 @@ func (a *App) Run(ctx context.Context, args []string) error {
 	return a.interactive(ctx, client, history, prompt, truncated)
 }
 
-func (a *App) interactive(ctx context.Context, client OpenAIClient, history HistoryStore, prompt string, truncated bool) error {
+func (a *App) interactive(ctx context.Context, client Client, history HistoryStore, prompt string, truncated bool) error {
 	readerFile := a.in
 	if !isTerminalFile(readerFile) {
 		tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
@@ -204,7 +204,7 @@ func (a *App) interactive(ctx context.Context, client OpenAIClient, history Hist
 	}
 }
 
-func (a *App) createResponseStreaming(ctx context.Context, client OpenAIClient, prompt string) (ShellHelperResponse, bool, error) {
+func (a *App) createResponseStreaming(ctx context.Context, client Client, prompt string) (ShellHelperResponse, bool, error) {
 	useTTY := isTerminalWriter(a.out)
 	var spinnerStop func()
 	var mdRenderer *markdown.Renderer

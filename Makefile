@@ -19,6 +19,7 @@ release:
 	@mkdir -p dist
 	GOOS=linux GOARCH=amd64 $(GOFLAGS) go build $(GCFLAGS) -ldflags="$(LDFLAGS)" -o dist/$(APP)-linux-amd64 ./cmd/pls
 	GOOS=linux GOARCH=arm64 $(GOFLAGS) go build $(GCFLAGS) -ldflags="$(LDFLAGS)" -o dist/$(APP)-linux-arm64 ./cmd/pls
+	GOOS=darwin GOARCH=arm64 $(GOFLAGS) go build $(GCFLAGS) -ldflags="$(LDFLAGS)" -o dist/$(APP)-darwin-arm64 ./cmd/pls
 	@ls -lh dist/
 
 release-upx: release

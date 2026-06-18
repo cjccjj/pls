@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -13,7 +14,13 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        arch: [amd64, arm64]
+        include:
+          - os: linux
+            arch: amd64
+          - os: linux
+            arch: arm64
+          - os: darwin
+            arch: arm64
     steps:
       - uses: actions/checkout@v4
 
@@ -21,36 +28,38 @@ jobs:
         with:
           go-version: '1.25'
 
-      - name: Install UPX
+      - name: Install UPX (linux only)
+        if: matrix.os == 'linux'
         run: |
           sudo apt-get update -q
           sudo apt-get install -y -q upx-ucl
 
       - name: Build
         env:
-          GOOS: linux
+          GOOS: ${{ matrix.os }}
           GOARCH: ${{ matrix.arch }}
           CGO_ENABLED: '0'
         run: |
           VERSION=${{ github.ref_name }}
           go build -trimpath \
             -ldflags="-s -w -X 'github.com/cjccjj/pls/internal/pls.Version=${VERSION}'" \
-            -o pls-linux-${{ matrix.arch }} ./cmd/pls
+            -o pls-${{ matrix.os }}-${{ matrix.arch }} ./cmd/pls
 
-      - name: Compress
+      - name: Compress (linux only)
+        if: matrix.os == 'linux'
         run: |
-          upx --best --lzma pls-linux-${{ matrix.arch }}
-          ls -lh pls-linux-${{ matrix.arch }}
+          upx --best --lzma pls-${{ matrix.os }}-${{ matrix.arch }}
+          ls -lh pls-${{ matrix.os }}-${{ matrix.arch }}
 
       - name: SHA256
-        run: sha256sum pls-linux-${{ matrix.arch }} > pls-linux-${{ matrix.arch }}.sha256
+        run: sha256sum pls-${{ matrix.os }}-${{ matrix.arch }} > pls-${{ matrix.os }}-${{ matrix.arch }}.sha256
 
       - uses: actions/upload-artifact@v4
         with:
-          name: pls-linux-${{ matrix.arch }}
+          name: pls-${{ matrix.os }}-${{ matrix.arch }}
           path: |
-            pls-linux-${{ matrix.arch }}
-            pls-linux-${{ matrix.arch }}.sha256
+            pls-${{ matrix.os }}-${{ matrix.arch }}
+            pls-${{ matrix.os }}-${{ matrix.arch }}.sha256
 
   release:
     needs: build
@@ -60,7 +69,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: pls-linux-*
+          pattern: pls-*
           merge-multiple: true
 
       - name: Create Release
@@ -72,6 +81,8 @@ jobs:
             pls-linux-amd64.sha256
             pls-linux-arm64
             pls-linux-arm64.sha256
+            pls-darwin-arm64
+            pls-darwin-arm64.sha256
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

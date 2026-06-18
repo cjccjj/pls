@@ -39,7 +39,7 @@ pls/
 │   ├── config_test.go           # Config loading + inline comment tests
 │   ├── history.go               # HistoryStore: JSONL append + time-window/max-record filter
 │   ├── history_test.go          # History write + filter tests
-│   ├── openai.go                # OpenAIClient, provider dispatch, payload/parse for all 3 providers
+│   ├── llm.go                   # Client, provider dispatch, payload/parse for all 3 providers
 │   ├── openai_test.go           # Payload, parse, stream tests for all 3 providers (fake SSE)
 │   ├── prompt.go                # BuildSystemInstruction, BuildPrompt, sanitizeInput
 │   ├── prompt_test.go           # Prompt + system instruction tests
@@ -124,7 +124,7 @@ Downloads `pls-$(uname -s)-$(uname -m)` from `https://github.com/cjccjj/pls/rele
 - Validates `finishReason == "STOP"`
 
 ### Provider dispatch
-`OpenAIClient.CreateResponse()` switches on `Profile.Provider`:
+`Client.CreateResponse()` switches on `Profile.Provider`:
 - `"openai"` → `createOpenAIResponse(ctx, prompt, hooks)`
 - `"deepseek"` → `createDeepSeekResponse(ctx, prompt, hooks)`
 - `"gemini"` → `createGeminiResponse(ctx, prompt, hooks)`
@@ -220,8 +220,8 @@ JSONL format at `history_file` path. Each record: `{timestamp, role, content}`.
 
 ## Open Items
 
-### macOS terminal support
-Bash version used `vared` on macOS for command editing (zsh builtin). Go `readline` works on Linux but may need a different approach on macOS. The `isTerminalFile` check and `/dev/tty` fallback should work cross-platform. Needs testing.
+### macOS terminal support (resolved)
+`chzyer/readline` has `term_bsd.go` for macOS/BSD terminal ioctl. The Go binary cross-compiles for darwin/arm64 (Apple Silicon) and is included in releases. The `isTerminalFile` check and `/dev/tty` fallback are POSIX-compliant. If readline fails to initialize, `editShellCommand` silently returns the current command as a safe fallback.
 
 ### Config `base_url` edge case for DeepSeek
 DeepSeek config has `base_url="https://api.deepseek.com/beta"`. The endpoint is built as `baseURL + "/chat/completions"` → `https://api.deepseek.com/beta/chat/completions`. Verify behavior when user sets a custom base_url.
@@ -232,7 +232,7 @@ DeepSeek config has `base_url="https://api.deepseek.com/beta"`. The endpoint is 
 - Invalid JSON from providers: `invalid structured response` error; could add fallback parsing
 
 ### Code organization
-`openai.go` (~505 lines) contains all 3 providers. Consider splitting into `openai.go`, `deepseek.go`, `gemini.go` for maintainability. The `OpenAIClient` struct name could be renamed to `Client`.
+`llm.go` (~505 lines) contains all 3 providers. Consider splitting into `llm.go`, `deepseek.go`, `gemini.go` for maintainability.
 
 ### Test coverage gaps
 - No integration tests for DeepSeek/Gemini fake servers (only OpenAI has `app_integration_test.go`)

@@ -15,8 +15,8 @@ case "$ARCH" in
     *)       echo "Unsupported architecture: $ARCH"; exit 1 ;;
 esac
 
-if [ "$OS" != "linux" ]; then
-    echo "Currently only Linux is supported. For macOS, use 'go install'."
+if [ "$OS" != "linux" ] && [ "$OS" != "darwin" ]; then
+    echo "Unsupported OS: $OS"
     echo "Request other platforms at https://github.com/$REPO/issues"
     exit 1
 fi

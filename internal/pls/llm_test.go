@@ -19,7 +19,7 @@ func TestOpenAIPayloadIncludesHistoryAndSchema(t *testing.T) {
 	if err := history.Add("hello", "hi"); err != nil {
 		t.Fatal(err)
 	}
-	client := OpenAIClient{
+	client := Client{
 		Profile: cfg.Profiles["openai_1"],
 		Config:  cfg,
 		System:  "sys",
@@ -67,7 +67,7 @@ func TestOpenAICreateResponseParsesStructuredOutput(t *testing.T) {
 	profile := cfg.Profiles["openai_1"]
 	profile.BaseURL = server.URL
 	profile.APIKey = "test-key"
-	client := OpenAIClient{Profile: profile, Config: cfg, System: "sys", History: HistoryStore{Path: filepath.Join(t.TempDir(), "hist")}}
+	client := Client{Profile: profile, Config: cfg, System: "sys", History: HistoryStore{Path: filepath.Join(t.TempDir(), "hist")}}
 	resp, err := client.CreateResponse(context.Background(), "hello", StreamHooks{})
 	if err != nil {
 		t.Fatal(err)
@@ -151,7 +151,7 @@ func TestOpenAIStreamFiltersReasoningEvents(t *testing.T) {
 func TestDeepSeekPayloadIncludesToolCall(t *testing.T) {
 	cfg := defaultConfig("/tmp/pls.conf", t.TempDir())
 	cfg.HistoryFile = filepath.Join(t.TempDir(), "hist.log")
-	client := OpenAIClient{
+	client := Client{
 		Profile: cfg.Profiles["deepseek_1"],
 		Config:  cfg,
 		System:  "sys",
@@ -239,7 +239,7 @@ func TestDeepSeekStreamChatBeforeFlag(t *testing.T) {
 func TestGeminiPayloadIncludesSchema(t *testing.T) {
 	cfg := defaultConfig("/tmp/pls.conf", t.TempDir())
 	cfg.HistoryFile = filepath.Join(t.TempDir(), "hist.log")
-	client := OpenAIClient{
+	client := Client{
 		Profile: cfg.Profiles["gemini_1"],
 		Config:  cfg,
 		System:  "sys",
@@ -282,7 +282,7 @@ func TestGeminiHistoryRoleMapping(t *testing.T) {
 	}
 	cfg := defaultConfig("/tmp/pls.conf", t.TempDir())
 	cfg.HistoryFile = history.Path
-	client := OpenAIClient{
+	client := Client{
 		Profile: cfg.Profiles["gemini_1"],
 		Config:  cfg,
 		System:  "sys",
