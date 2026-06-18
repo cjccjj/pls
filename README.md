@@ -121,15 +121,7 @@ export DEEPSEEK_API_KEY="sk-..."    # DeepSeek
 
 You can manage profiles, config, and the app itself by just saying what you want in chat:
 
-| Say in chat | What happens |
-|-------------|--------------|
-| `list profiles` | Shows all profiles from your config file with API key status |
-| `switch to <name>` | Switches to a profile (e.g. `switch to deepseek_1`). If the name doesn't match or the API key is missing, it lists available profiles |
-| `edit config` | Opens `~/.pls/pls.conf` in your editor and reloads the config |
-| `clear history` | Deletes all chat history |
-| `update pls` | Downloads and installs the latest version, then restarts |
-
-You can also add custom profiles by editing the config file directly — `list profiles` always reads from disk, so changes are reflected immediately.
+For example, say like `list profiles`, `switch model`, `switch to openai_1`, `edit config`, `update yourself` to config the session or the tool. 
 
 ## Tips
 
