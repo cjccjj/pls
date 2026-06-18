@@ -30,8 +30,10 @@ jobs:
 
       - name: Install UPX
         run: |
-          sudo apt-get update -q
-          sudo apt-get install -y -q upx-ucl
+          curl -fsSL https://github.com/upx/upx/releases/download/v5.2.0/upx-5.2.0-amd64_linux.tar.xz -o upx.tar.xz
+          tar -xf upx.tar.xz
+          sudo mv upx-5.2.0-amd64_linux/upx /usr/local/bin/upx
+          upx --version
 
       - name: Build
         env:
@@ -46,7 +48,7 @@ jobs:
 
       - name: Compress
         run: |
-          upx --best --lzma pls-${{ matrix.os }}-${{ matrix.arch }}
+          upx --best --lzma --force-macos pls-${{ matrix.os }}-${{ matrix.arch }}
           ls -lh pls-${{ matrix.os }}-${{ matrix.arch }}
 
       - name: SHA256
