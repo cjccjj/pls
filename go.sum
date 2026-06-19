@@ -4,8 +4,10 @@ github.com/chzyer/readline v1.5.1 h1:upd/6fQk4src78LMRzh5vItIt361/o4uq553V8B5sGI
 github.com/chzyer/readline v1.5.1/go.mod h1:Eh+b79XXUwfKfcPLepksvw2tcLE/Ct21YObkaSkeBlk=
 github.com/chzyer/test v1.0.0 h1:p3BQDXSxOhOG0P9z6/hGnII4LGiEPOYBhs8asl/fC04=
 github.com/chzyer/test v1.0.0/go.mod h1:2JlltgoNkt4TW/z9V/IzDdFaMTM2JPIi26O1pF38GC8=
-github.com/cjccjj/mdflow v0.1.0 h1:sE0JD0DH5UcAK2bYyRDCktazbiF9YyG2ElUDxhPk5+8=
-github.com/cjccjj/mdflow v0.1.0/go.mod h1:+8n9wUFug50pUELXiwiDyuzWuXREWsx/LOIhJ//mhqo=
+github.com/cjccjj/mdflow v0.1.1-0.20260619150736-0af61f370124 h1:13E1A1gl+Q4Zc21mas0SIPV2hfI+A7fO2O3Q+UlmsUg=
+github.com/cjccjj/mdflow v0.1.1-0.20260619150736-0af61f370124/go.mod h1:mWDukdjCe5s1Y2sL+VU5xHW+ayYM62hG1gV0f0+QJXs=
 golang.org/x/sys v0.0.0-20220310020820-b874c991c1a5/go.mod h1:oPkhp1MJrh7nUepCBck5+mAzfO9JrbApNNgaTdGDITg=
 golang.org/x/sys v0.46.0 h1:noSf2Fq6F8DBgS+LysIkx7rIExoNHJsxOAtPp4rthXw=
 golang.org/x/sys v0.46.0/go.mod h1:4GL1E5IUh+htKOUEOaiffhrAeqysfVGipDYzABqnCmw=
+golang.org/x/term v0.44.0 h1:0rLvDRCtNj0gZkyIXhCyOb2OAzEhLVqc4B+hrsBhrmc=
+golang.org/x/term v0.44.0/go.mod h1:7ze4MdzUzLXpSAoFP1H0bOI9aXDqveSvatT5vKcFh2Y=
